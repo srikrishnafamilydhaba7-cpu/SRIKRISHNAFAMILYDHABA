@@ -1,9 +1,9 @@
 @import "tailwindcss";
 
 @theme {
-  --color-brand-bg: #F6EFE3;
-  --color-brand-dark: #2B1B12;
-  --color-brand-accent: #C1440E;
+  --color-brand-bg: #F5F5F5;
+  --color-brand-dark: #265429;
+  --color-brand-accent: #265429;
   --color-brand-gold: #D4AF37;
   --color-brand-olive: #5C6B4F;
   --font-display: "Fraunces", serif;
@@ -42,16 +42,34 @@
 }
 
 ::-webkit-scrollbar-track {
-  background: #F6EFE3;
+  background: #F5F5F5;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #C1440E;
+  background: #265429;
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #2B1B12;
+  background: #19361b;
+}
+
+/* Custom scrollbar for the sidebar navigation to blend in */
+aside ::-webkit-scrollbar {
+  width: 4px;
+}
+
+aside ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+aside ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 2px;
+}
+
+aside ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
 }
 
 /* Global Styles */
@@ -79,15 +97,72 @@ body {
 
 /* Glassmorphism Styles */
 .glass-panel {
-  background: rgba(246, 239, 227, 0.75);
+  background: rgba(245, 245, 245, 0.75);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(212, 175, 55, 0.2);
+  border: 1px solid rgba(38, 84, 41, 0.45);
 }
 
 .glass-panel-dark {
-  background: rgba(43, 27, 18, 0.85);
+  background: rgba(38, 84, 41, 0.85);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.22);
 }
+
+/* HTML5 QR Code Scanner Styles Overrides */
+#qr-reader {
+  border: none !important;
+  font-family: inherit !important;
+}
+
+#qr-reader__dashboard_section_csr button,
+#qr-reader button {
+  background-color: var(--color-brand-accent, #265429) !important;
+  color: white !important;
+  border: none !important;
+  border-radius: 12px !important;
+  padding: 10px 20px !important;
+  font-weight: 900 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.05em !important;
+  font-size: 10px !important;
+  cursor: pointer !important;
+  transition: all 0.3s ease !important;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06) !important;
+}
+
+#qr-reader__dashboard_section_csr button:hover,
+#qr-reader button:hover {
+  background-color: var(--color-brand-dark, #19361b) !important;
+}
+
+#qr-reader select {
+  background-color: white !important;
+  border: 1px solid rgba(38, 84, 41, 0.55) !important;
+  border-radius: 10px !important;
+  padding: 8px 14px !important;
+  font-size: 11px !important;
+  color: #265429 !important;
+  outline: none !important;
+}
+
+@keyframes laserSweep {
+  0% {
+    top: 6%;
+    opacity: 0.7;
+  }
+  50% {
+    top: 88%;
+    opacity: 1;
+  }
+  100% {
+    top: 6%;
+    opacity: 0.7;
+  }
+}
+
+.animate-laser-sweep {
+  animation: laserSweep 2s ease-in-out infinite;
+}
+

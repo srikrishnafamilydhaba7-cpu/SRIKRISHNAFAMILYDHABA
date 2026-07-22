@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from "react";
-import { Search, SlidersHorizontal, Star, Sparkles, ShoppingCart, Trash2, X, Plus, Minus, ArrowRight } from "lucide-react";
+import { Search, SlidersHorizontal, Star, Sparkles, ShoppingCart, Trash2, X, Plus, Minus, ArrowRight, ChevronLeft, ChevronRight } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useLocation } from "react-router-dom";
 import DishCard from "../components/DishCard";
@@ -25,7 +25,7 @@ const categories = [
   "PARATHA in TANDOOR",
   "RICE",
   "FRIED RICE",
-  "PULLAW",
+  "PULAO",
   "BIRYANI",
   "PAPAD",
   "RAITA",
@@ -47,6 +47,8 @@ export default function Menu() {
   const [sortBy, setSortBy] = useState<"none" | "price-asc" | "price-desc" | "rating">("none");
   const [showChefSpecialsOnly, setShowChefSpecialsOnly] = useState(false);
   const [showHighRatingOnly, setShowHighRatingOnly] = useState(false);
+  const [showMenuPromo, setShowMenuPromo] = useState(true);
+  const [liveDiscount, setLiveDiscount] = useState(10);
 
   // Cart States
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -56,6 +58,13 @@ export default function Menu() {
   const [customerPhone, setCustomerPhone] = useState("");
   const [deliveryAddress, setDeliveryAddress] = useState("");
   const [specialNotes, setSpecialNotes] = useState("");
+  const [showWhatsAppConfirmModal, setShowWhatsAppConfirmModal] = useState(false);
+  const [pendingOrder, setPendingOrder] = useState<any | null>(null);
+  const [orderPlatform, setOrderPlatform] = useState<"WhatsApp" | "Swiggy" | "Zomato">("WhatsApp");
+  const [addedItemToast, setAddedItemToast] = useState<{ dish: Dish; quantity: number } | null>(null);
+  const toastTimeoutRef = useRef<number | null>(null);
+
+  const [showWebExclusiveBar, setShowWebExclusiveBar] = useState(true);
 
   const categoryTabContainerRef = useRef<HTMLDivElement>(null);
   const isScrollingProgrammatically = useRef(false);
@@ -65,7 +74,25 @@ export default function Menu() {
   useEffect(() => {
     // Increment visits and load dynamic menu
     db.init();
-    setMenuData(db.getMenu().filter((item: any) => !item.hidden));
+    const loadData = () => {
+      setMenuData(db.getMenu().filter((item: any) => !item.hidden));
+      const s = db.getSettings();
+      setShowMenuPromo(s.showMenuPromo !== false);
+      setLiveDiscount(s.discountPercent ?? 10);
+      setShowWebExclusiveBar(s.showWebExclusiveBar !== false);
+    };
+    loadData();
+
+    window.addEventListener("skd_settings_updated", loadData);
+    window.addEventListener("storage", loadData);
+
+    return () => {
+      window.removeEventListener("skd_settings_updated", loadData);
+      window.removeEventListener("storage", loadData);
+      if (toastTimeoutRef.current) {
+        window.clearTimeout(toastTimeoutRef.current);
+      }
+    };
   }, []);
 
   // Filter and sort items
@@ -152,12 +179,28 @@ export default function Menu() {
     }
   };
 
+  const scrollCategoryContainer = (category: string, direction: "left" | "right") => {
+    const containerId = `scroll-container-${category.replace(/\s+/g, '-').replace(/'/g, '')}`;
+    const element = document.getElementById(containerId);
+    if (element) {
+      const scrollAmount = direction === "left" ? -295 : 295;
+      element.scrollBy({ left: scrollAmount, behavior: "smooth" });
+    }
+  };
+
+  const formatCategoryName = (name: string) => {
+    return name
+      .toLowerCase()
+      .split(' ')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+  };
+
   // Scroll spy to highlight active category tab
   useEffect(() => {
     const handleScroll = () => {
       if (isScrollingProgrammatically.current) return;
 
-      const scrollPosition = window.scrollY + 250;
       let active = "All";
 
       for (const category of categories) {
@@ -165,9 +208,9 @@ export default function Menu() {
         const id = `category-section-${category.replace(/\s+/g, '-').replace(/'/g, '')}`;
         const el = document.getElementById(id);
         if (el) {
-          const top = el.offsetTop;
-          const height = el.offsetHeight;
-          if (scrollPosition >= top && scrollPosition < top + height) {
+          const rect = el.getBoundingClientRect();
+          // Check if the category section spans across the trigger line (250px from viewport top)
+          if (rect.top <= 250 && rect.bottom > 250) {
             active = category;
             break;
           }
@@ -176,10 +219,19 @@ export default function Menu() {
 
       if (active !== selectedCategory) {
         setSelectedCategory(active);
-        // Center the active tab button in viewport
-        const activeTabEl = categoryTabContainerRef.current?.querySelector(`[data-category="${active}"]`);
-        if (activeTabEl) {
-          activeTabEl.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+        // Center the active tab button inside its scroll container horizontally
+        // (Avoiding scrollIntoView as it can cause vertical page jumping/glitching on mobile browsers)
+        const container = categoryTabContainerRef.current;
+        const activeTabEl = container?.querySelector(`[data-category="${active}"]`) as HTMLElement;
+        if (container && activeTabEl) {
+          const containerWidth = container.clientWidth;
+          const tabOffsetLeft = activeTabEl.offsetLeft;
+          const tabWidth = activeTabEl.clientWidth;
+          const targetScrollLeft = tabOffsetLeft - (containerWidth / 2) + (tabWidth / 2);
+          container.scrollTo({
+            left: targetScrollLeft,
+            behavior: "smooth"
+          });
         }
       }
     };
@@ -221,7 +273,15 @@ export default function Menu() {
       }
       return [...prev, { dish, quantity: 1, instructions: "" }];
     });
-    setIsCartOpen(true);
+
+    // Show custom toast notification
+    setAddedItemToast({ dish, quantity: 1 });
+    if (toastTimeoutRef.current) {
+      window.clearTimeout(toastTimeoutRef.current);
+    }
+    toastTimeoutRef.current = window.setTimeout(() => {
+      setAddedItemToast(null);
+    }, 2500);
   };
 
   const updateQuantity = (dishId: string, amount: number) => {
@@ -243,8 +303,8 @@ export default function Menu() {
   }, [cart]);
 
   const discountAmount = useMemo(() => {
-    return cartTotal * 0.1; // 10% website booking/ordering promo discount
-  }, [cartTotal]);
+    return cartTotal * (liveDiscount / 100);
+  }, [cartTotal, liveDiscount]);
 
   const finalTotal = useMemo(() => {
     return cartTotal - discountAmount;
@@ -281,7 +341,7 @@ export default function Menu() {
 
     message += `\n----------------------------------------\n`;
     message += `*Subtotal:* Rs. ${cartTotal}\n`;
-    message += `*Web Discount (10%):* -Rs. ${discountAmount.toFixed(0)}\n`;
+    message += `*Web Discount (${liveDiscount}%):* -Rs. ${discountAmount.toFixed(0)}\n`;
     message += `*Grand Total:* Rs. ${finalTotal.toFixed(0)}\n`;
     message += `----------------------------------------\n`;
 
@@ -294,26 +354,90 @@ export default function Menu() {
 
     message += `\nThank you!`;
 
-    // Log dummy checkout to database for Customer metrics tracking
-    db.addBooking({
-      name: customerName,
+    // Save order data temporarily, DO NOT log to db yet
+    setPendingOrder({
+      customerName,
       phone: customerPhone,
-      whatsapp: customerPhone,
-      guests: 1,
-      date: new Date().toISOString().split("T")[0],
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
-      occasion: "None",
-      instructions: `WhatsApp Order (${orderType}): ${cart.map(c=>`${c.dish.title} x${c.quantity}`).join(", ")}`,
-      status: "Completed",
-      notes: `Total: Rs. ${finalTotal.toFixed(0)}`
+      address: orderType === "Delivery" ? deliveryAddress : "Self Pick-Up",
+      items: cart.map(item => ({
+        id: item.dish.id,
+        name: item.dish.title,
+        price: getNumericPrice(item.dish.price),
+        quantity: item.quantity
+      })),
+      totalAmount: cartTotal,
+      discountApplied: discountAmount,
+      finalAmount: finalTotal
     });
 
     const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
     window.open(waUrl, "_blank");
 
+    // Open confirmation modal
+    setShowWhatsAppConfirmModal(true);
+  };
+
+  const confirmWhatsAppOrderSent = () => {
+    if (pendingOrder) {
+      db.addOrder(pendingOrder);
+      
+      try {
+        (db as any).addAuditLog(
+          "WhatsApp Order Placed",
+          `Order for ${pendingOrder.customerName} (Rs. ${pendingOrder.finalAmount.toFixed(0)}) sent and confirmed via WhatsApp`
+        );
+      } catch (e) {
+        console.warn("Audit logging failed on client:", e);
+      }
+      
+      setPendingOrder(null);
+    }
+    setShowWhatsAppConfirmModal(false);
+    setCart([]);
+    setIsCartOpen(false);
+    
+    // Reset forms
+    setCustomerName("");
+    setCustomerPhone("");
+    setDeliveryAddress("");
+    setSpecialNotes("");
+  };
+
+  const cancelWhatsAppOrderConfirm = () => {
+    setPendingOrder(null);
+    setShowWhatsAppConfirmModal(false);
+  };
+
+  const handleExternalRedirectOrder = () => {
+    if (cart.length === 0) return;
+    
+    // Log redirect order to database for Admin tracking
+    db.addOrder({
+      customerName: "Web Customer",
+      phone: "Redirected",
+      address: `Order via ${orderPlatform}`,
+      items: cart.map(item => ({
+        id: item.dish.id,
+        name: item.dish.title,
+        price: getNumericPrice(item.dish.price),
+        quantity: item.quantity
+      })),
+      totalAmount: cartTotal,
+      discountApplied: 0,
+      finalAmount: cartTotal
+    });
+
+    const targetUrl = orderPlatform === "Swiggy"
+      ? "https://www.swiggy.com/search?query=Sri%20Krishna%20Family%20Dhaba"
+      : "https://www.zomato.com/hyderabad/search?q=Sri%20Krishna%20Family%20Dhaba";
+
+    window.open(targetUrl, "_blank");
+
     // Clear cart and close
     setCart([]);
     setIsCartOpen(false);
+
+    alert(`Redirecting you to ${orderPlatform} to complete your order!`);
   };
 
   return (
@@ -417,79 +541,144 @@ export default function Menu() {
                     </div>
 
                     {/* Order Details Form */}
-                    <div className="pt-6 border-t border-brand-gold/15 space-y-4">
-                      <h4 className="font-display font-bold text-sm text-brand-dark uppercase tracking-wider">Delivery Details</h4>
+                    <div className="pt-6 border-t border-brand-gold/15 space-y-5">
+                      
+                      {/* Order Platform Selector */}
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-brand-dark/60 block mb-1">
+                          Select Ordering Platform
+                        </label>
+                        <div className="grid grid-cols-3 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setOrderPlatform("WhatsApp")}
+                            className={`flex flex-col items-center justify-center p-3 rounded-2xl border text-center transition-all duration-300 cursor-pointer ${
+                              orderPlatform === "WhatsApp"
+                                ? "bg-brand-accent/10 border-brand-accent text-brand-accent shadow-sm"
+                                : "bg-white border-brand-gold/15 hover:border-brand-accent/50 text-brand-dark/70"
+                            }`}
+                          >
+                            <span className="text-xs font-extrabold">WhatsApp</span>
+                            <span className="text-[8px] opacity-75 mt-0.5">{liveDiscount}% Web Off</span>
+                          </button>
 
-                      {/* Order Type Toggle */}
-                      <div className="flex gap-2 bg-brand-bg/60 p-1.5 rounded-xl border border-brand-gold/10">
-                        <button
-                          type="button"
-                          onClick={() => setOrderType("Pickup")}
-                          className={`flex-grow py-2 rounded-lg text-xs font-bold transition-all duration-300 ${
-                            orderType === "Pickup" ? "bg-brand-accent text-white shadow-sm" : "text-brand-dark/70 hover:text-brand-dark"
-                          }`}
-                        >
-                          Self-Pickup
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setOrderType("Delivery")}
-                          className={`flex-grow py-2 rounded-lg text-xs font-bold transition-all duration-300 ${
-                            orderType === "Delivery" ? "bg-brand-accent text-white shadow-sm" : "text-brand-dark/70 hover:text-brand-dark"
-                          }`}
-                        >
-                          Home Delivery
-                        </button>
+                          <button
+                            type="button"
+                            onClick={() => setOrderPlatform("Swiggy")}
+                            className={`flex flex-col items-center justify-center p-3 rounded-2xl border text-center transition-all duration-300 cursor-pointer ${
+                              orderPlatform === "Swiggy"
+                                ? "bg-[#fc8019]/10 border-[#fc8019] text-[#fc8019] shadow-sm"
+                                : "bg-white border-brand-gold/15 hover:border-[#fc8019]/50 text-brand-dark/70"
+                            }`}
+                          >
+                            <span className="text-xs font-extrabold">Swiggy</span>
+                            <span className="text-[8px] opacity-75 mt-0.5">Order via App</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setOrderPlatform("Zomato")}
+                            className={`flex flex-col items-center justify-center p-3 rounded-2xl border text-center transition-all duration-300 cursor-pointer ${
+                              orderPlatform === "Zomato"
+                                ? "bg-[#e23744]/10 border-[#e23744] text-[#e23744] shadow-sm"
+                                : "bg-white border-brand-gold/15 hover:border-[#e23744]/50 text-brand-dark/70"
+                            }`}
+                          >
+                            <span className="text-xs font-extrabold">Zomato</span>
+                            <span className="text-[8px] opacity-75 mt-0.5">Order via App</span>
+                          </button>
+                        </div>
                       </div>
 
-                      {/* Fields */}
-                      <div className="space-y-3">
-                        <div>
-                          <label className="text-[10px] font-bold uppercase tracking-wider text-brand-dark/60 block mb-1">Your Name</label>
-                          <input
-                            type="text"
-                            value={customerName}
-                            onChange={(e) => setCustomerName(e.target.value)}
-                            placeholder="Enter your name"
-                            className="w-full bg-white border border-brand-gold/20 focus:border-brand-accent/60 focus:outline-none px-4 py-2.5 rounded-xl text-xs text-brand-dark shadow-sm"
-                          />
-                        </div>
+                      {orderPlatform === "WhatsApp" ? (
+                        <div className="space-y-4">
+                          <h4 className="font-display font-bold text-sm text-brand-dark uppercase tracking-wider">Delivery Details</h4>
 
-                        <div>
-                          <label className="text-[10px] font-bold uppercase tracking-wider text-brand-dark/60 block mb-1">Contact Number</label>
-                          <input
-                            type="tel"
-                            value={customerPhone}
-                            onChange={(e) => setCustomerPhone(e.target.value)}
-                            placeholder="Enter mobile number"
-                            className="w-full bg-white border border-brand-gold/20 focus:border-brand-accent/60 focus:outline-none px-4 py-2.5 rounded-xl text-xs text-brand-dark shadow-sm"
-                          />
-                        </div>
-
-                        {orderType === "Delivery" && (
-                          <div>
-                            <label className="text-[10px] font-bold uppercase tracking-wider text-brand-dark/60 block mb-1">Delivery Address</label>
-                            <textarea
-                              rows={2}
-                              value={deliveryAddress}
-                              onChange={(e) => setDeliveryAddress(e.target.value)}
-                              placeholder="House No, Landmark, Area details..."
-                              className="w-full bg-white border border-brand-gold/20 focus:border-brand-accent/60 focus:outline-none px-4 py-2 rounded-xl text-xs text-brand-dark shadow-sm"
-                            />
+                          {/* Order Type Toggle */}
+                          <div className="flex gap-2 bg-brand-bg/60 p-1.5 rounded-xl border border-brand-gold/10">
+                            <button
+                              type="button"
+                              onClick={() => setOrderType("Pickup")}
+                              className={`flex-grow py-2 rounded-lg text-xs font-bold transition-all duration-300 ${
+                                orderType === "Pickup" ? "bg-brand-accent text-white shadow-sm" : "text-brand-dark/70 hover:text-brand-dark"
+                              }`}
+                            >
+                              Self-Pickup
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setOrderType("Delivery")}
+                              className={`flex-grow py-2 rounded-lg text-xs font-bold transition-all duration-300 ${
+                                orderType === "Delivery" ? "bg-brand-accent text-white shadow-sm" : "text-brand-dark/70 hover:text-brand-dark"
+                              }`}
+                            >
+                              Home Delivery
+                            </button>
                           </div>
-                        )}
 
-                        <div>
-                          <label className="text-[10px] font-bold uppercase tracking-wider text-brand-dark/60 block mb-1">Order Notes (Optional)</label>
-                          <input
-                            type="text"
-                            value={specialNotes}
-                            onChange={(e) => setSpecialNotes(e.target.value)}
-                            placeholder="Overall order instructions..."
-                            className="w-full bg-white border border-brand-gold/20 focus:border-brand-accent/60 focus:outline-none px-4 py-2.5 rounded-xl text-xs text-brand-dark shadow-sm"
-                          />
+                          {/* Fields */}
+                          <div className="space-y-3">
+                            <div>
+                              <label className="text-[10px] font-bold uppercase tracking-wider text-brand-dark/60 block mb-1">Your Name</label>
+                              <input
+                                type="text"
+                                value={customerName}
+                                onChange={(e) => setCustomerName(e.target.value)}
+                                placeholder="Enter your name"
+                                className="w-full bg-white border border-brand-gold/20 focus:border-brand-accent/60 focus:outline-none px-4 py-2.5 rounded-xl text-xs text-brand-dark shadow-sm"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="text-[10px] font-bold uppercase tracking-wider text-brand-dark/60 block mb-1">Contact Number</label>
+                              <input
+                                type="tel"
+                                value={customerPhone}
+                                onChange={(e) => setCustomerPhone(e.target.value)}
+                                placeholder="Enter mobile number"
+                                className="w-full bg-white border border-brand-gold/20 focus:border-brand-accent/60 focus:outline-none px-4 py-2.5 rounded-xl text-xs text-brand-dark shadow-sm"
+                              />
+                            </div>
+
+                            {orderType === "Delivery" && (
+                              <div>
+                                <label className="text-[10px] font-bold uppercase tracking-wider text-brand-dark/60 block mb-1">Delivery Address</label>
+                                <textarea
+                                  rows={2}
+                                  value={deliveryAddress}
+                                  onChange={(e) => setDeliveryAddress(e.target.value)}
+                                  placeholder="House No, Landmark, Area details..."
+                                  className="w-full bg-white border border-brand-gold/20 focus:border-brand-accent/60 focus:outline-none px-4 py-2 rounded-xl text-xs text-brand-dark shadow-sm"
+                                />
+                              </div>
+                            )}
+
+                            <div>
+                              <label className="text-[10px] font-bold uppercase tracking-wider text-brand-dark/60 block mb-1">Order Notes (Optional)</label>
+                              <input
+                                type="text"
+                                value={specialNotes}
+                                onChange={(e) => setSpecialNotes(e.target.value)}
+                                placeholder="Overall order instructions..."
+                                className="w-full bg-white border border-brand-gold/20 focus:border-brand-accent/60 focus:outline-none px-4 py-2.5 rounded-xl text-xs text-brand-dark shadow-sm"
+                              />
+                            </div>
+                          </div>
                         </div>
-                      </div>
+                      ) : (
+                        <div className={`p-4 rounded-2xl border ${
+                          orderPlatform === "Swiggy" 
+                            ? "bg-[#fc8019]/5 border-[#fc8019]/25 text-[#7f3900]" 
+                            : "bg-[#e23744]/5 border-[#e23744]/25 text-[#7c1c24]"
+                        } text-xs space-y-2`}>
+                          <p className="font-bold uppercase tracking-wider text-[10px]">
+                            Ordering via {orderPlatform}
+                          </p>
+                          <p className="leading-relaxed text-brand-dark/80">
+                            We will redirect you to Sri Krishna Family Dhaba's page on {orderPlatform} to complete your order. Please add your items on the app to check out.
+                          </p>
+                        </div>
+                      )}
                     </div>
                   </>
                 )}
@@ -503,21 +692,40 @@ export default function Menu() {
                       <span>Subtotal</span>
                       <span className="font-semibold">Rs. {cartTotal}</span>
                     </div>
-                    <div className="flex justify-between text-emerald-600 font-medium">
-                      <span>Web Discount (10% Off)</span>
-                      <span>-Rs. {discountAmount.toFixed(0)}</span>
-                    </div>
+                    {orderPlatform === "WhatsApp" ? (
+                      <div className="flex justify-between text-emerald-600 font-medium">
+                        <span>Web Discount ({liveDiscount}% Off)</span>
+                        <span>-Rs. {discountAmount.toFixed(0)}</span>
+                      </div>
+                    ) : (
+                      <div className="flex justify-between text-brand-dark/50 font-medium italic">
+                        <span>App Delivery (No Web Discount)</span>
+                        <span>—</span>
+                      </div>
+                    )}
                     <div className="flex justify-between text-sm font-extrabold text-brand-dark pt-2 border-t border-brand-dark/5">
                       <span>Grand Total</span>
-                      <span className="text-brand-accent text-base">Rs. {finalTotal.toFixed(0)}</span>
+                      <span className="text-brand-accent text-base">
+                        Rs. {orderPlatform === "WhatsApp" ? finalTotal.toFixed(0) : cartTotal.toFixed(0)}
+                      </span>
                     </div>
                   </div>
 
                   <button
-                    onClick={sendWhatsAppOrder}
-                    className="w-full bg-brand-gold hover:bg-brand-dark text-brand-dark hover:text-brand-bg py-4 rounded-xl text-xs font-black tracking-widest uppercase flex items-center justify-center gap-2 transition-all duration-300 shadow-md border border-brand-gold/10"
+                    onClick={orderPlatform === "WhatsApp" ? sendWhatsAppOrder : handleExternalRedirectOrder}
+                    className={`w-full py-4 rounded-xl text-xs font-black tracking-widest uppercase flex items-center justify-center gap-2 transition-all duration-300 shadow-md border ${
+                      orderPlatform === "WhatsApp" 
+                        ? "bg-brand-gold hover:bg-brand-dark text-brand-dark hover:text-brand-bg border-brand-gold/10" 
+                        : orderPlatform === "Swiggy" 
+                        ? "bg-[#fc8019] hover:bg-[#fc8019]/90 text-white border-[#fc8019]/10 cursor-pointer animate-pulse" 
+                        : "bg-[#e23744] hover:bg-[#e23744]/90 text-white border-[#e23744]/10 cursor-pointer animate-pulse"
+                    }`}
                   >
-                    <span>Send Order via WhatsApp</span>
+                    <span>
+                      {orderPlatform === "WhatsApp" 
+                        ? "Send Order via WhatsApp" 
+                        : `Open Order page on ${orderPlatform}`}
+                    </span>
                     <ArrowRight size={14} />
                   </button>
                 </div>
@@ -527,37 +735,137 @@ export default function Menu() {
         )}
       </AnimatePresence>
 
+      {/* WhatsApp Order Confirmation Modal */}
+      <AnimatePresence>
+        {showWhatsAppConfirmModal && (
+          <div className="fixed inset-0 bg-brand-dark/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-[#F5F5F5] rounded-3xl p-6 border border-brand-gold/15 w-full max-w-md space-y-6 shadow-2xl relative text-brand-dark"
+            >
+              <div className="text-center space-y-3">
+                <div className="w-12 h-12 rounded-full bg-emerald-500/10 text-emerald-600 flex items-center justify-center mx-auto text-xl font-bold">
+                  ✓
+                </div>
+                <h3 className="font-display font-black text-xl text-brand-dark uppercase tracking-wider">
+                  Confirm Order Sent
+                </h3>
+                <p className="text-xs text-brand-dark/65 leading-relaxed">
+                  We have opened WhatsApp to send your order. Please make sure you send the message in WhatsApp and confirm with the Dhaba, then click "Confirm Sent" below to log your order.
+                </p>
+                <div className="bg-brand-bg/40 p-4 rounded-xl border border-brand-gold/10 text-left text-[11px] space-y-1">
+                  <p><strong>Customer Name:</strong> {pendingOrder?.customerName}</p>
+                  <p><strong>Phone Number:</strong> {pendingOrder?.phone}</p>
+                  <p><strong>Grand Total:</strong> Rs. {pendingOrder?.finalAmount.toFixed(0)}</p>
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={cancelWhatsAppOrderConfirm}
+                  className="flex-1 py-3 border border-brand-gold/15 text-brand-dark hover:bg-brand-bg rounded-xl text-xs font-black uppercase tracking-wider transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmWhatsAppOrderSent}
+                  className="flex-1 py-3 bg-brand-accent hover:bg-brand-dark text-white rounded-xl text-xs font-black uppercase tracking-wider transition-colors cursor-pointer"
+                >
+                  Confirm Sent
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Added to Cart Toast Notification */}
+      <AnimatePresence>
+        {addedItemToast && (
+          <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 pointer-events-auto">
+            <motion.div
+              initial={{ opacity: 0, y: 50, scale: 0.9 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 20, scale: 0.9 }}
+              className="bg-brand-dark/95 backdrop-blur-md border border-brand-gold/20 text-brand-bg px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-3.5 max-w-sm w-[calc(100vw-2rem)] sm:w-auto"
+            >
+              {addedItemToast.dish.isSignature && addedItemToast.dish.image && (
+                <img
+                  src={addedItemToast.dish.image}
+                  alt={addedItemToast.dish.title}
+                  className="w-10 h-10 rounded-xl object-cover border border-brand-gold/10 shrink-0"
+                />
+              )}
+              <div className="flex-grow min-w-0 text-xs text-left">
+                <p className="font-bold text-emerald-400 uppercase tracking-wider text-[9px] mb-0.5">Added to Cart!</p>
+                <h4 className="font-display font-bold text-white truncate uppercase tracking-wide">
+                  {addedItemToast.dish.title}
+                </h4>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsCartOpen(true);
+                  setAddedItemToast(null);
+                }}
+                className="px-3.5 py-1.5 bg-brand-accent hover:bg-brand-gold hover:text-brand-dark text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all duration-300 shrink-0 cursor-pointer"
+              >
+                View Cart
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
         {/* Header */}
         <div className="text-center max-w-3xl mx-auto mb-12 space-y-4">
-          <span className="bg-brand-accent/15 border border-brand-accent/25 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider text-brand-accent">
-            Aromatic Journeys
-          </span>
-          <h1 className="font-display font-extrabold text-4xl sm:text-5xl md:text-6xl text-brand-dark tracking-tight leading-none">
-            Culinary Menu
+          {/* Badge */}
+          <div className="flex justify-center">
+            <span className="inline-flex items-center gap-1.5 bg-brand-accent/15 border border-brand-accent/30 px-4 py-1.5 rounded-full text-[11px] font-black uppercase tracking-[0.2em] text-brand-accent">
+              🔥 Sri Krishna Signature Menu
+            </span>
+          </div>
+
+          {/* Main Title */}
+          <h1 className="font-display font-black text-5xl sm:text-6xl md:text-7xl text-brand-dark leading-tight">
+            Choose Your Flavour
           </h1>
-          <p className="font-telugu text-brand-gold font-bold text-base sm:text-lg">
-            కృష్ణ ఫ్యామిలీ ధాబ - ఆహార పదార్థాల పట్టిక
+
+          {/* Telugu subtitle */}
+          <p className="font-telugu text-brand-accent font-semibold text-lg sm:text-xl">
+            కారా మరియు రుచికరమైన శాకాహార వంటకాలు
+          </p>
+
+          {/* Description */}
+          <p className="text-sm text-brand-dark/60 leading-relaxed max-w-xl mx-auto">
+            From piping hot soups to smoking hot clay tandoori starters, authentic Hyderabadi veg and cashew biryanis. Pure taste that satisfies.
           </p>
         </div>
 
         {/* Promo Banner - Exclusive Table Reservation */}
-        <div className="mb-10 max-w-5xl mx-auto border-2 border-dashed border-brand-gold/30 bg-white/40 p-5 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-4">
-          <div>
-            <span className="text-[10px] font-black bg-brand-accent/10 border border-brand-accent/20 px-2 py-0.5 rounded text-brand-accent uppercase tracking-wider">
-              Special Discount
-            </span>
-            <p className="text-sm font-display font-bold text-brand-dark mt-1.5">
-              🎁 Reserve your table through our website and receive <strong className="text-brand-accent">10% OFF</strong> on your final dining bill.
-            </p>
+        {showMenuPromo && (
+          <div className="mb-10 max-w-5xl mx-auto border-2 border-dashed border-brand-gold/30 bg-white/40 p-5 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-4">
+            <div>
+              <span className="text-[10px] font-black bg-brand-accent/10 border border-brand-accent/20 px-2 py-0.5 rounded text-brand-accent uppercase tracking-wider">
+                Special Discount
+              </span>
+              <p className="text-sm font-display font-bold text-brand-dark mt-1.5">
+                🎁 Reserve your table through our website and receive <strong className="text-brand-accent">{liveDiscount}% OFF</strong> on your final dining bill.
+              </p>
+            </div>
+            <button
+              onClick={() => handleCategoryClick("All")}
+              className="shrink-0 bg-brand-accent hover:bg-brand-dark text-white px-5 py-2.5 rounded-full text-xs font-bold tracking-wider uppercase transition-colors"
+            >
+              Order Now
+            </button>
           </div>
-          <button
-            onClick={() => handleCategoryClick("All")}
-            className="shrink-0 bg-brand-accent hover:bg-brand-dark text-white px-5 py-2.5 rounded-full text-xs font-bold tracking-wider uppercase transition-colors"
-          >
-            Order Now
-          </button>
-        </div>
+        )}
 
         {/* Search & Filters */}
         <div className="max-w-5xl mx-auto bg-white rounded-3xl p-6 shadow-sm border border-brand-gold/10 mb-10">
@@ -620,7 +928,11 @@ export default function Menu() {
 
         {/* Sticky Categories Tab Bar */}
         <div
-          className="sticky top-[70px] lg:top-[74px] z-30 bg-brand-bg/95 backdrop-blur-md py-4 -mx-4 px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8 transition-all duration-300 mb-10"
+          style={{
+            "--sticky-top-mobile": showWebExclusiveBar ? "114px" : "82px",
+            "--sticky-top-desktop": showWebExclusiveBar ? "118px" : "86px",
+          } as React.CSSProperties}
+          className="sticky top-[var(--sticky-top-mobile)] lg:top-[var(--sticky-top-desktop)] z-30 bg-brand-bg/95 backdrop-blur-md py-4 -mx-4 px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8 transition-all duration-300 mb-10"
         >
           <div
             ref={categoryTabContainerRef}
@@ -653,26 +965,50 @@ export default function Menu() {
 
             return (
               <div key={category} id={elementId} className="scroll-mt-[205px]">
-                {/* Category Heading */}
-                <div className="border-b border-brand-gold/25 pb-3 mb-8 flex justify-between items-end">
-                  <h2 className="font-display font-extrabold text-2xl sm:text-3xl text-brand-dark tracking-tight">
-                    {category}
-                  </h2>
-                  <span className="text-xs font-bold text-brand-gold bg-brand-gold/15 border border-brand-gold/20 px-3 py-1 rounded-full uppercase tracking-wider">
-                    {dishes.length} {dishes.length === 1 ? "Dish" : "Dishes"}
-                  </span>
+                {/* Category Heading & Controls */}
+                <div className="pb-4 mb-6 flex justify-between items-center border-b border-brand-gold/15">
+                  <div>
+                    <h2 className="font-display font-extrabold text-2xl sm:text-3xl text-brand-dark tracking-tight">
+                      {formatCategoryName(category)}
+                    </h2>
+                    <span className="text-[10px] font-bold text-brand-gold uppercase tracking-wider block mt-1">
+                      {dishes.length} {dishes.length === 1 ? "Item" : "Items"} Available
+                    </span>
+                  </div>
+                  
+                  {/* Scroll controls (left and right arrow buttons) */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => scrollCategoryContainer(category, 'left')}
+                      className="w-9 h-9 rounded-full border border-brand-dark/20 hover:border-brand-accent hover:bg-brand-accent hover:text-brand-bg flex items-center justify-center text-brand-dark transition-all duration-300 cursor-pointer shadow-sm animate-fade-in"
+                      aria-label="Scroll left"
+                    >
+                      <ChevronLeft size={16} />
+                    </button>
+                    <button
+                      onClick={() => scrollCategoryContainer(category, 'right')}
+                      className="w-9 h-9 rounded-full border border-brand-dark/20 hover:border-brand-accent hover:bg-brand-accent hover:text-brand-bg flex items-center justify-center text-brand-dark transition-all duration-300 cursor-pointer shadow-sm animate-fade-in"
+                      aria-label="Scroll right"
+                    >
+                      <ChevronRight size={16} />
+                    </button>
+                  </div>
                 </div>
 
-                {/* Dish Grid Layout */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {/* Horizontal Scroll Layout */}
+                <div 
+                  id={`scroll-container-${category.replace(/\s+/g, '-').replace(/'/g, '')}`}
+                  className="flex overflow-x-auto gap-6 pb-6 pt-2 scroll-smooth scrollbar-thin scrollbar-thumb-brand-accent/40 scrollbar-track-transparent snap-x snap-mandatory"
+                >
                   {dishes.map((dish) => (
                     <div 
                       key={dish.id} 
                       id={`dish-item-${dish.id}`} 
-                      className="scroll-mt-[225px] rounded-2xl transition-all duration-300"
+                      className="scroll-mt-[225px] rounded-2xl transition-all duration-300 shrink-0 w-[230px] sm:w-[270px] snap-start"
                     >
                       <DishCard 
                         dish={dish} 
+                        showImage={true}
                         onClickOverride={(e) => {
                           e.stopPropagation();
                           handleAddToCart(dish);
@@ -684,6 +1020,51 @@ export default function Menu() {
               </div>
             );
           })}
+
+          {/* Render any dynamic categories not present in static categories list */}
+          {Object.keys(groupedDishes)
+            .filter((cat) => !categories.includes(cat) && (groupedDishes[cat]?.length || 0) > 0)
+            .map((category) => {
+              const dishes = groupedDishes[category];
+              const elementId = `category-section-${category.replace(/\s+/g, '-').replace(/'/g, '')}`;
+
+              return (
+                <div key={category} id={elementId} className="scroll-mt-[205px]">
+                  <div className="pb-4 mb-6 flex justify-between items-center border-b border-brand-gold/15">
+                    <div>
+                      <h2 className="font-display font-extrabold text-2xl sm:text-3xl text-brand-dark tracking-tight">
+                        {formatCategoryName(category)}
+                      </h2>
+                      <span className="text-[10px] font-bold text-brand-gold uppercase tracking-wider block mt-1">
+                        {dishes.length} {dishes.length === 1 ? "Item" : "Items"} Available
+                      </span>
+                    </div>
+                  </div>
+
+                  <div 
+                    id={`scroll-container-${category.replace(/\s+/g, '-').replace(/'/g, '')}`}
+                    className="flex overflow-x-auto gap-6 pb-6 pt-2 scroll-smooth scrollbar-thin scrollbar-thumb-brand-accent/40 scrollbar-track-transparent snap-x snap-mandatory"
+                  >
+                    {dishes.map((dish) => (
+                      <div 
+                        key={dish.id} 
+                        id={`dish-item-${dish.id}`} 
+                        className="scroll-mt-[225px] rounded-2xl transition-all duration-300 shrink-0 w-[230px] sm:w-[270px] snap-start"
+                      >
+                        <DishCard 
+                          dish={dish} 
+                          showImage={true}
+                          onClickOverride={(e) => {
+                            e.stopPropagation();
+                            handleAddToCart(dish);
+                          }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
 
           {/* Fallback for when absolutely no dishes are found in any category */}
           {allFilteredDishes.length === 0 && (

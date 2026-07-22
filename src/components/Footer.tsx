@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { Clock, MapPin, Phone, MessageCircle } from "lucide-react";
+import { Clock, MapPin, Phone } from "lucide-react";
 import { db } from "../utils/db";
+import WhatsAppIcon from "./WhatsAppIcon";
 
 export default function Footer() {
   const [settings, setSettings] = useState<any>(null);
@@ -53,10 +54,10 @@ export default function Footer() {
 
             {/* Social Media Circular Buttons Grid */}
             <div className="flex items-center space-x-3 pt-2">
-              {/* Phone (Blue) */}
+              {/* Phone (Green) */}
               <a
                 href={`tel:${cleanPhone}`}
-                className="w-10 h-10 rounded-full bg-[#007aff] hover:bg-[#007aff]/90 text-white flex items-center justify-center transition-transform hover:scale-105"
+                className="w-10 h-10 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white flex items-center justify-center transition-transform hover:scale-105"
                 aria-label="Call Us"
               >
                 <Phone size={16} className="fill-white/10" />
@@ -70,7 +71,7 @@ export default function Footer() {
                 className="w-10 h-10 rounded-full bg-[#25d366] hover:bg-[#25d366]/90 text-white flex items-center justify-center transition-transform hover:scale-105"
                 aria-label="WhatsApp"
               >
-                <MessageCircle size={18} className="fill-white/10" />
+                <WhatsAppIcon size={18} />
               </a>
 
               {/* Instagram (Instagram gradient) */}
@@ -165,19 +166,19 @@ export default function Footer() {
                 </div>
               </a>
               <a
-                href="https://maps.google.com/?q=Sri+Krishna+Family+Dhaba+Aziz+Nagar+Moinabad+Telangana"
+                href="https://maps.google.com/?q=Sri+Krishna+Family+Dhaba+Moinabad+Telangana"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-start space-x-2 group/branch hover:text-brand-gold transition-colors duration-200 block"
               >
                 <MapPin size={16} className="text-brand-gold shrink-0 mt-0.5 group-hover/branch:scale-110 transition-transform" />
                 <div>
-                  <p className="font-bold text-white group-hover/branch:text-brand-gold">Aziz Nagar Branch</p>
-                  <p className="text-brand-bg/65 text-[11px] leading-tight mt-0.5">Aziz Nagar, Himayat Sagar Rd, Moinabad</p>
+                  <p className="font-bold text-white group-hover/branch:text-brand-gold">Moinabad Branch</p>
+                  <p className="text-brand-bg/65 text-[11px] leading-tight mt-0.5">Himayat Sagar Rd, Moinabad</p>
                 </div>
               </a>
               <div className="flex items-center space-x-2 pt-1">
-                <Phone size={16} className="text-brand-gold shrink-0" />
+                <Phone size={16} className="text-emerald-500 shrink-0" />
                 <a href={`tel:${cleanPhone}`} className="text-white hover:text-brand-accent font-semibold transition-colors duration-300">
                   {phone}
                 </a>

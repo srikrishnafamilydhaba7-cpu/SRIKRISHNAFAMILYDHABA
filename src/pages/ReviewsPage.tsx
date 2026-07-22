@@ -252,7 +252,7 @@ export default function ReviewsPage() {
 
               {/* Row 2: Scrolling Right */}
               {filteredReviews.length > 2 && (
-                <div className="marquee-container flex gap-6 overflow-hidden py-2 relative">
+                <div className="marquee-container hidden md:flex gap-6 overflow-hidden py-2 relative">
                   <div className="marquee-content flex gap-6 animate-marquee-right shrink-0">
                     {Array.from({ length: Math.ceil(10 / filteredReviews.length) + 1 })
                       .flatMap(() => filteredReviews)

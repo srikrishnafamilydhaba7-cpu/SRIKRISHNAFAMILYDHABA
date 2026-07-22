@@ -1,0 +1,19 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // personalData security rules: Access limited to owner.
+    // Applied to future user-specific private collections (e.g., user profiles).
+    match /personalData/{appId}/users/{uid}/{collectionName}/{docId} {
+      allow get: if uid == request.auth.uid;
+      allow list: if uid == request.auth.uid && request.query.limit <= 100;
+      allow write: if uid == request.auth.uid;
+    }
+
+    // publicData security rules: Publicly readable and writeable.
+    // Applied to menu, reviews, gallery, settings, bookings, vouchers, orders, contacts, visits, and audit_logs.
+    match /publicData/{appId}/{collectionName}/{docId} {
+      allow read, write: if true;
+    }
+  }
+}

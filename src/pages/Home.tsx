@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowRight, Star, Clock, Phone, MapPin, X, Mail, MessageCircle, ChevronDown } from "lucide-react";
+import { ArrowRight, Star, Clock, Phone, MapPin, X, Mail, ChevronDown } from "lucide-react";
 import DishCard from "../components/DishCard";
 import TestimonialCard from "../components/TestimonialCard";
+import WhatsAppIcon from "../components/WhatsAppIcon";
 import { db } from "../utils/db";
 import type { Review } from "../utils/db";
 import type { Dish } from "../components/DishCard";
@@ -38,7 +39,7 @@ const branches: Branch[] = [
     phone: "+91 90322 92421",
     hours: "Mon – Sun: 11:00 AM – 11:30 PM",
     mapSrc:
-      "https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3808.7!2d78.3184651!3d17.3484252!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x0%3A0xbf2c80be0a597a76!2sBalaji%20Chilkur%20Family%20Dhaba!5e0!3m2!1sen!2sin!4v1704481029192!5m2!1sen!2sin",
+      "https://maps.google.com/maps?q=17.3484252,78.3184651(Balaji%20Chilkur%20Family%20Dhaba)&ll=17.3518,78.3184651&z=16&hl=en&output=embed",
     googleMapsUrl: "https://www.google.com/maps/place/Balaji+Chilkur+Family+Dhaba/@17.3484252,78.3184651,15z/data=!4m2!3m1!1s0x0:0xbf2c80be0a597a76?sa=X"
   }
 ];
@@ -57,21 +58,33 @@ export default function Home() {
 
   useEffect(() => {
     db.incrementWebsiteVisits();
-    setSettings(db.getSettings());
+    const loadSettings = () => setSettings(db.getSettings());
+    loadSettings();
+
+    window.addEventListener("skd_settings_updated", loadSettings);
+    window.addEventListener("storage", loadSettings);
     
     // Load Dynamic Menu Specials
     const allMenu = db.getMenu();
-    const signatures = [
-      allMenu.find((dish) => dish.id === "spl-starter-7"),
-      allMenu.find((dish) => dish.id === "spl-starter-4"),
-      allMenu.find((dish) => dish.id === "starter-9"),
-      allMenu.find((dish) => dish.id === "biryani-6")
-    ].filter((dish): dish is Dish => !!dish);
+    let signatures = allMenu.filter((dish) => dish.isSignature);
+    if (signatures.length === 0) {
+      signatures = [
+        allMenu.find((dish) => dish.id === "spl-starter-7"),
+        allMenu.find((dish) => dish.id === "spl-starter-4"),
+        allMenu.find((dish) => dish.id === "starter-9"),
+        allMenu.find((dish) => dish.id === "biryani-6")
+      ].filter((dish): dish is Dish => !!dish);
+    }
     setSignatureDishes(signatures);
 
     // Load Approved Reviews
     const approved = db.getReviews().filter((r) => r.status === "Approved");
     setTestimonials(approved);
+
+    return () => {
+      window.removeEventListener("skd_settings_updated", loadSettings);
+      window.removeEventListener("storage", loadSettings);
+    };
   }, []);
 
   const dynamicBranches = useMemo(() => {
@@ -108,13 +121,28 @@ export default function Home() {
       <div className="noise-overlay" />
 
       {/* Hero Section (Clean Video Displayer Showcase) */}
-      <section className="relative w-full h-[100dvh] md:h-auto md:aspect-video md:min-h-[80vh] bg-brand-dark overflow-hidden z-10 snap-child">
+      <section className="relative w-full h-[100dvh] md:h-auto md:aspect-video md:min-h-[80vh] bg-brand-dark overflow-hidden z-10 snap-child flex items-center justify-center">
+        {/* Blurred background video for filling portrait screens on mobile */}
         <video
           autoPlay
           loop
           muted
           playsInline
-          className="w-full h-full object-cover"
+          className="absolute inset-0 w-full h-full object-cover blur-3xl opacity-35 scale-105 pointer-events-none md:hidden"
+        >
+          <source 
+            src="https://res.cloudinary.com/or5e9kak/video/upload/v1783771254/WhatsApp_Video_2026-07-11_at_10.04.14_dnyzq3.mp4" 
+            type="video/mp4" 
+          />
+        </video>
+
+        {/* Main foreground video */}
+        <video
+          autoPlay
+          loop
+          muted
+          playsInline
+          className="w-full h-full object-contain md:object-cover relative z-10"
         >
           <source 
             src="https://res.cloudinary.com/or5e9kak/video/upload/v1783771254/WhatsApp_Video_2026-07-11_at_10.04.14_dnyzq3.mp4" 
@@ -123,41 +151,6 @@ export default function Home() {
           Your browser does not support the video tag.
         </video>
 
-        {/* Exclusive Web Offer Card Overlaid on Video - Desktop */}
-        <div className="absolute top-28 right-8 z-20 hidden lg:block max-w-xs glass-panel-dark p-6 rounded-2xl border border-brand-gold/30 shadow-2xl">
-          <div className="flex items-center gap-2 mb-2 text-brand-gold">
-            <span className="bg-brand-accent/20 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border border-brand-accent/30">
-              10% OFF
-            </span>
-            <span className="text-[10px] font-bold tracking-widest uppercase">Web Exclusive</span>
-          </div>
-          <p className="text-xs text-brand-bg/90 leading-relaxed">
-            Reserve your table through our website and receive <strong className="text-brand-gold">10% OFF</strong> on your final dining bill!
-          </p>
-          <Link
-            to="/book-table"
-            className="mt-3.5 w-full inline-flex items-center justify-center bg-brand-gold hover:bg-brand-accent text-brand-dark hover:text-brand-bg text-[10px] font-extrabold tracking-widest uppercase py-2.5 rounded-xl transition-all duration-300"
-          >
-            Book Table Now
-          </Link>
-        </div>
-
-        {/* Floating Promo Banner - Mobile */}
-        <div className="absolute bottom-24 left-4 right-4 z-20 md:hidden glass-panel-dark p-4 rounded-xl border border-brand-gold/20 text-center shadow-lg">
-          <p className="text-[10px] font-black text-brand-gold uppercase tracking-wider mb-1">
-            🎁 WEB EXCLUSIVE OFFER — 10% DISCOUNT
-          </p>
-          <p className="text-[11px] text-brand-bg/90 leading-tight">
-            Reserve online and receive <strong className="text-brand-gold">10% OFF</strong> your final bill!
-          </p>
-          <Link
-            to="/book-table"
-            onClick={(e) => e.stopPropagation()}
-            className="mt-2 inline-block bg-brand-gold text-brand-dark text-[9px] font-extrabold tracking-widest uppercase px-4 py-1.5 rounded-lg"
-          >
-            Reserve Table
-          </Link>
-        </div>
 
         {/* Scroll Down Indicator for Mobile */}
         <div 
@@ -332,7 +325,7 @@ export default function Home() {
               🎁 WEBSITE EXCLUSIVE OFFER
             </p>
             <p className="text-base sm:text-lg md:text-xl font-display text-brand-bg/95 leading-relaxed italic">
-              "Reserve your table through our website and receive <span className="text-brand-gold font-bold">10% OFF</span> on your final dining bill."
+              "{settings?.reservationPromoText || `Reserve your table through our website and receive ${settings?.discountPercent ?? 10}% OFF on your final dining bill.`}"
             </p>
           </div>
           
@@ -375,7 +368,7 @@ export default function Home() {
                 className="bg-white rounded-2xl p-6 shadow-sm border border-brand-gold/10 hover:shadow-md transition-all duration-300 flex flex-col items-center text-center group"
               >
                 <div className="w-12 h-12 rounded-full bg-emerald-50 text-emerald-500 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                  <MessageCircle size={22} className="fill-emerald-500/10" />
+                  <WhatsAppIcon size={22} />
                 </div>
                 <h3 className="font-sans font-bold text-brand-dark text-sm">WhatsApp</h3>
                 <p className="text-xs text-brand-dark/50 mt-1">Chat with us</p>
@@ -496,6 +489,27 @@ export default function Home() {
                     <ArrowRight size={14} />
                   </div>
                 </a>
+
+                {/* WhatsApp Delivery */}
+                <a
+                  href={`https://wa.me/${whatsappNum}?text=Hello,%20I%20would%20like%20to%20order%20food%20for%20delivery.`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-between bg-white rounded-2xl p-5 shadow-sm border-l-4 border-emerald-500 hover:shadow-md transition-shadow group"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-500 flex items-center justify-center text-lg select-none">
+                      <WhatsAppIcon size={20} />
+                    </div>
+                    <div>
+                      <h4 className="font-sans font-bold text-brand-dark text-sm">WhatsApp Delivery</h4>
+                      <p className="text-[10px] text-brand-dark/45">Direct Order</p>
+                    </div>
+                  </div>
+                  <div className="w-8 h-8 rounded-full bg-brand-bg flex items-center justify-center text-brand-dark group-hover:bg-brand-dark group-hover:text-brand-bg transition-colors">
+                    <ArrowRight size={14} />
+                  </div>
+                </a>
               </div>
             </div>
           </div>
@@ -524,7 +538,7 @@ export default function Home() {
                       : "bg-white text-brand-dark border-brand-gold/15 hover:border-brand-accent/40"
                   }`}
                 >
-                  {branch.id === "pragathinagar" ? "Pragathi Nagar" : "Aziz Nagar"}
+                  {branch.id === "pragathinagar" ? "Pragathi Nagar" : "Moinabad"}
                 </button>
               ))}
             </div>

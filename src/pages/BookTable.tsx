@@ -1,33 +1,90 @@
 import { useState, useEffect } from "react";
-import { Calendar as CalendarIcon, Clock, Users, Gift, MessageCircle, AlertTriangle, ArrowRight, CheckCircle2 } from "lucide-react";
+import { Calendar as CalendarIcon, Clock, Users, Gift, AlertTriangle, ArrowRight, CheckCircle2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import WhatsAppIcon from "../components/WhatsAppIcon";
 import { db } from "../utils/db";
 import type { Booking } from "../utils/db";
 
-interface Table {
-  id: string;
-  name: string;
-  capacity: number;
-  section: "Main Hall" | "Family Section" | "Window Side" | "VIP Booth" | "Banquet";
+
+
+const defaultTimeSlots = [
+  "11:30", "12:00", "12:30", "13:00", "13:30", "14:00", "14:30", "15:00", "15:30",
+  "16:00", "16:30", "17:00", "17:30", "18:00", "18:30", "19:00", "19:30", "20:00",
+  "20:30", "21:00", "21:30", "22:00", "22:30", "23:00", "23:30"
+];
+
+function parseOpeningHours(timingsStr?: string) {
+  const fallback = {
+    openMinutes: 11 * 60 + 30,
+    closeMinutes: 23 * 60 + 45,
+    formattedOpening: "11:30 AM – 11:45 PM",
+    minTimeStr: "11:30",
+    maxTimeStr: "23:45"
+  };
+  if (!timingsStr) return fallback;
+
+  const matches = timingsStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?\s*[–\-]\s*(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
+  if (!matches) return fallback;
+
+  let [, startHStr, startMStr, startAmpm, endHStr, endMStr, endAmpm] = matches;
+
+  let startH = parseInt(startHStr, 10);
+  let startM = parseInt(startMStr, 10);
+  if (startAmpm) {
+    const ampm = startAmpm.toUpperCase();
+    if (ampm === "PM" && startH < 12) startH += 12;
+    if (ampm === "AM" && startH === 12) startH = 0;
+  }
+
+  let endH = parseInt(endHStr, 10);
+  let endM = parseInt(endMStr, 10);
+  if (endAmpm) {
+    const ampm = endAmpm.toUpperCase();
+    if (ampm === "PM" && endH < 12) endH += 12;
+    if (ampm === "AM" && endH === 12) endH = 0;
+  }
+
+  const openMinutes = startH * 60 + startM;
+  const closeMinutes = endH * 60 + endM;
+
+  let displayOpening = timingsStr;
+  if (timingsStr.includes(":")) {
+    const parts = timingsStr.split(":");
+    if (parts.length >= 3) {
+      displayOpening = parts.slice(1).join(":").trim();
+    }
+  }
+
+  return {
+    openMinutes,
+    closeMinutes,
+    formattedOpening: displayOpening || fallback.formattedOpening,
+    minTimeStr: `${String(startH).padStart(2, '0')}:${String(startM).padStart(2, '0')}`,
+    maxTimeStr: `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`
+  };
 }
 
-const restaurantTables: Table[] = [
-  { id: "1", name: "Table 1 (2-Seater)", capacity: 2, section: "Main Hall" },
-  { id: "2", name: "Table 2 (2-Seater)", capacity: 2, section: "Main Hall" },
-  { id: "3", name: "Table 3 (4-Seater)", capacity: 4, section: "Main Hall" },
-  { id: "4", name: "Table 4 (4-Seater)", capacity: 4, section: "Main Hall" },
-  { id: "5", name: "Table 5 (6-Seater)", capacity: 6, section: "Family Section" },
-  { id: "6", name: "Table 6 (6-Seater)", capacity: 6, section: "Family Section" },
-  { id: "7", name: "Table 7 (4-Seater)", capacity: 4, section: "Window Side" },
-  { id: "8", name: "Table 8 (4-Seater)", capacity: 4, section: "Window Side" },
-  { id: "9", name: "Table 9 (8-Seater)", capacity: 8, section: "Banquet" },
-  { id: "10", name: "Table 10 (2-Seater)", capacity: 2, section: "VIP Booth" }
-];
+function isTimeWithinOpeningHours(timeStr: string, openMinutes: number, closeMinutes: number): boolean {
+  if (!timeStr) return false;
+  const [hStr, mStr] = timeStr.split(":");
+  const h = parseInt(hStr, 10);
+  const m = parseInt(mStr, 10);
+  if (isNaN(h) || isNaN(m)) return false;
+  const selectedMinutes = h * 60 + m;
+  return selectedMinutes >= openMinutes && selectedMinutes <= closeMinutes;
+}
 
-const timeSlots = [
-  "12:00", "12:30", "13:00", "13:30", "14:00", "14:30",
-  "19:00", "19:30", "20:00", "20:30", "21:00", "21:30", "22:00", "22:30"
-];
+function formatTime12h(timeStr: string): string {
+  if (!timeStr) return "";
+  const [hStr, mStr] = timeStr.split(":");
+  let h = parseInt(hStr, 10);
+  const m = mStr || "00";
+  if (isNaN(h)) return timeStr;
+  const ampm = h >= 12 ? "PM" : "AM";
+  h = h % 12;
+  if (h === 0) h = 12;
+  return `${h}:${m} ${ampm}`;
+}
 
 const occasions = [
   "None",
@@ -51,22 +108,37 @@ export default function BookTable() {
   const [time, setTime] = useState("");
   const [occasion, setOccasion] = useState("None");
   const [instructions, setInstructions] = useState("");
-  const [selectedTable, setSelectedTable] = useState<string>("");
+  const [timeMode, setTimeMode] = useState<"preset" | "custom">("preset");
 
   // System State
   const [existingBookings, setExistingBookings] = useState<Booking[]>([]);
-  const [reservedTables, setReservedTables] = useState<string[]>([]);
   const [bookingSuccess, setBookingSuccess] = useState<Booking | null>(null);
   const [formError, setFormError] = useState("");
+  const [settings, setSettings] = useState<any>(() => db.getSettings());
 
-  const settings = db.getSettings();
+  const openingInfo = parseOpeningHours(settings?.timings);
+  const validPresetSlots = defaultTimeSlots.filter((slot) =>
+    isTimeWithinOpeningHours(slot, openingInfo.openMinutes, openingInfo.closeMinutes)
+  );
+  const isCurrentTimeValid = !time || isTimeWithinOpeningHours(time, openingInfo.openMinutes, openingInfo.closeMinutes);
 
   useEffect(() => {
     db.init();
+    const loadSettings = () => setSettings(db.getSettings());
+    loadSettings();
+
+    window.addEventListener("skd_settings_updated", loadSettings);
+    window.addEventListener("storage", loadSettings);
+
     // Default date to today
     const today = new Date().toISOString().split("T")[0];
     setDate(today);
     setExistingBookings(db.getBookings());
+
+    return () => {
+      window.removeEventListener("skd_settings_updated", loadSettings);
+      window.removeEventListener("storage", loadSettings);
+    };
   }, []);
 
   // Update sameAsPhone
@@ -76,39 +148,19 @@ export default function BookTable() {
     }
   }, [phone, sameAsPhone]);
 
-  // Compute reserved tables for the selected date and time slot
-  useEffect(() => {
-    if (!date || !time) {
-      setReservedTables([]);
-      return;
-    }
-
-    const matchedBookings = existingBookings.filter(
-      (b) =>
-        b.date === date &&
-        b.time === time &&
-        b.status !== "Cancelled" &&
-        b.status !== "Rejected"
-    );
-
-    const reservedIds = matchedBookings
-      .map((b) => b.tableNumber)
-      .filter((id): id is string => !!id);
-
-    setReservedTables(reservedIds);
-
-    // Reset table selection if it becomes unavailable
-    if (selectedTable && reservedIds.includes(selectedTable)) {
-      setSelectedTable("");
-    }
-  }, [date, time, existingBookings, selectedTable]);
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setFormError("");
 
     if (!name || !phone || !date || !time) {
       setFormError("Please fill in all required fields (Name, Phone, Date, Time).");
+      return;
+    }
+
+    if (!isTimeWithinOpeningHours(time, openingInfo.openMinutes, openingInfo.closeMinutes)) {
+      setFormError(
+        `Selected time (${formatTime12h(time)}) is outside restaurant opening hours (${openingInfo.formattedOpening}). Please select a time during operating hours.`
+      );
       return;
     }
 
@@ -137,8 +189,7 @@ export default function BookTable() {
       date,
       time,
       occasion,
-      instructions: instructions || undefined,
-      tableNumber: selectedTable || undefined
+      instructions: instructions || undefined
     });
 
     setBookingSuccess(newBooking);
@@ -203,16 +254,15 @@ export default function BookTable() {
                       Exclusive Web Offer
                     </span>
                     <p className="text-sm font-display font-medium leading-relaxed italic text-brand-bg/95">
-                      "Reserve your table through our website and receive <strong className="text-brand-gold font-bold">10% OFF</strong> on your final dining bill."
+                      "{settings?.reservationPromoText || "Reserve your table through our website and receive 10% OFF on your final dining bill."}"
                     </p>
                   </div>
                 </div>
               </div>
 
-              {/* Grid: Form + Layout Map */}
-              <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-                {/* Form Side - 5 columns */}
-                <div className="lg:col-span-5 bg-white border border-brand-gold/10 p-6 sm:p-8 rounded-3xl shadow-sm space-y-6">
+              {/* Reservation Form - Centered */}
+              <form onSubmit={handleSubmit} className="max-w-2xl mx-auto w-full">
+                <div className="bg-white border border-brand-gold/10 p-6 sm:p-8 rounded-3xl shadow-sm space-y-6">
                   <h3 className="font-display font-bold text-lg text-brand-dark uppercase tracking-wider pb-3 border-b border-brand-dark/5">
                     Reservation Details
                   </h3>
@@ -322,23 +372,88 @@ export default function BookTable() {
                         </div>
                       </div>
                       <div>
-                        <label className="text-[10px] font-bold uppercase tracking-wider text-brand-dark/60 block mb-1">Time Slot *</label>
-                        <div className="relative">
-                          <select
-                            required
-                            value={time}
-                            onChange={(e) => setTime(e.target.value)}
-                            className="w-full bg-brand-bg/35 border border-brand-gold/20 focus:border-brand-accent/60 focus:outline-none pl-10 pr-4 py-2.5 rounded-xl text-xs text-brand-dark appearance-none cursor-pointer font-bold"
-                          >
-                            <option value="">Select Time</option>
-                            {timeSlots.map((slot) => (
-                              <option key={slot} value={slot}>
-                                {slot} {parseInt(slot.split(":")[0]) >= 12 ? "PM" : "AM"}
-                              </option>
-                            ))}
-                          </select>
-                          <Clock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-brand-dark/45 pointer-events-none" size={14} />
+                        <div className="flex justify-between items-center mb-1">
+                          <label className="text-[10px] font-bold uppercase tracking-wider text-brand-dark/60 block">Time *</label>
+                          <div className="flex items-center gap-1 bg-brand-bg/60 p-0.5 rounded-lg border border-brand-gold/20">
+                            <button
+                              type="button"
+                              onClick={() => { setTimeMode("preset"); setTime(""); }}
+                              className={`px-2 py-0.5 rounded text-[9px] font-extrabold uppercase transition-all ${
+                                timeMode === "preset"
+                                  ? "bg-brand-accent text-white shadow-sm"
+                                  : "text-brand-dark/60 hover:text-brand-dark"
+                              }`}
+                            >
+                              Slots
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => { setTimeMode("custom"); setTime(""); }}
+                              className={`px-2 py-0.5 rounded text-[9px] font-extrabold uppercase transition-all ${
+                                timeMode === "custom"
+                                  ? "bg-brand-accent text-white shadow-sm"
+                                  : "text-brand-dark/60 hover:text-brand-dark"
+                              }`}
+                            >
+                              Manual
+                            </button>
+                          </div>
                         </div>
+
+                        {timeMode === "preset" ? (
+                          <div className="relative">
+                            <select
+                              required
+                              value={time}
+                              onChange={(e) => setTime(e.target.value)}
+                              className="w-full bg-brand-bg/35 border border-brand-gold/20 focus:border-brand-accent/60 focus:outline-none pl-10 pr-4 py-2.5 rounded-xl text-xs text-brand-dark appearance-none cursor-pointer font-bold"
+                            >
+                              <option value="">Select Time Slot</option>
+                              {validPresetSlots.map((slot) => (
+                                <option key={slot} value={slot}>
+                                  {formatTime12h(slot)}
+                                </option>
+                              ))}
+                            </select>
+                            <Clock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-brand-dark/45 pointer-events-none" size={14} />
+                          </div>
+                        ) : (
+                          <div className="space-y-1">
+                            <div className="relative">
+                              <input
+                                type="time"
+                                required
+                                value={time}
+                                onChange={(e) => setTime(e.target.value)}
+                                min={openingInfo.minTimeStr}
+                                max={openingInfo.maxTimeStr}
+                                className={`w-full bg-brand-bg/35 border focus:outline-none pl-10 pr-4 py-2 rounded-xl text-xs text-brand-dark font-bold cursor-pointer shadow-inner ${
+                                  time && !isCurrentTimeValid
+                                    ? "border-rose-400 focus:border-rose-500 bg-rose-50/50"
+                                    : "border-brand-gold/20 focus:border-brand-accent/60"
+                                }`}
+                              />
+                              <Clock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-brand-dark/45 pointer-events-none" size={14} />
+                            </div>
+                            <div className="flex flex-col gap-0.5 px-0.5">
+                              <div className="flex justify-between items-center text-[9px]">
+                                <span className="text-brand-dark/50 font-medium">
+                                  Hours: {openingInfo.formattedOpening}
+                                </span>
+                                {time && isCurrentTimeValid && (
+                                  <span className="font-bold text-brand-accent">
+                                    Selected: {formatTime12h(time)}
+                                  </span>
+                                )}
+                              </div>
+                              {time && !isCurrentTimeValid && (
+                                <span className="text-[9px] font-bold text-rose-600 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded">
+                                  ⚠️ Selected time ({formatTime12h(time)}) is outside restaurant opening hours ({openingInfo.formattedOpening}).
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -377,106 +492,6 @@ export default function BookTable() {
                     <span>Request Reservation</span>
                     <ArrowRight size={14} />
                   </button>
-                </div>
-
-                {/* Seating Layout Side - 7 columns */}
-                <div className="lg:col-span-7 space-y-6">
-                  <div className="bg-white border border-brand-gold/10 p-6 rounded-3xl shadow-sm">
-                    <div className="flex justify-between items-start pb-4 border-b border-brand-dark/5 mb-6">
-                      <div>
-                        <h3 className="font-display font-bold text-lg text-brand-dark uppercase tracking-wider">
-                          Select Table Preference
-                        </h3>
-                        <p className="text-[11px] text-brand-dark/60 mt-1">
-                          Choose an available table from the visual dining layout below.
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap gap-2 text-[9px] font-bold uppercase tracking-wider">
-                        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 bg-emerald-500 rounded" /> Available</span>
-                        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 bg-amber-500 rounded" /> Chosen</span>
-                        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 bg-rose-500 rounded animate-pulse" /> Reserved</span>
-                      </div>
-                    </div>
-
-                    {!date || !time ? (
-                      <div className="bg-brand-bg/40 border border-brand-gold/10 rounded-2xl py-24 px-6 text-center text-brand-dark/50">
-                        <Clock size={36} className="mx-auto mb-3 opacity-35" />
-                        <p className="text-sm font-medium">Please select a Date and Time slot first</p>
-                        <p className="text-[11px] mt-1 opacity-70">Seating maps dynamically load depending on slot occupation.</p>
-                      </div>
-                    ) : (
-                      <div className="space-y-6">
-                        {/* Seating Map Grid */}
-                        <div className="border border-brand-gold/10 bg-brand-bg/25 rounded-2xl p-6 relative overflow-hidden flex flex-col justify-between min-h-[350px]">
-                          {/* Entrance/Counter Layout Markers */}
-                          <div className="flex justify-between text-[9px] font-black text-brand-dark/30 tracking-widest uppercase mb-4">
-                            <span className="border border-dashed border-brand-dark/20 px-4 py-1 rounded">🚪 MAIN ENTRANCE</span>
-                            <span className="border border-dashed border-brand-dark/20 px-4 py-1 rounded">🥘 KITCHEN WINDOW</span>
-                          </div>
-
-                          {/* Seating Grid */}
-                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 py-8">
-                            {restaurantTables.map((table) => {
-                              const isReserved = reservedTables.includes(table.id);
-                              const isSelected = selectedTable === table.id;
-
-                              let bgClass = "bg-white border-emerald-500/30 text-emerald-700 hover:bg-emerald-500 hover:text-white";
-                              if (isReserved) {
-                                bgClass = "bg-rose-100 border-rose-400 text-rose-700 cursor-not-allowed";
-                              } else if (isSelected) {
-                                bgClass = "bg-brand-gold border-brand-gold text-brand-dark shadow-md";
-                              }
-
-                              return (
-                                <motion.div
-                                  key={table.id}
-                                  whileHover={!isReserved ? { scale: 1.03 } : {}}
-                                  onClick={() => {
-                                    if (isReserved) return;
-                                    setSelectedTable(isSelected ? "" : table.id);
-                                  }}
-                                  className={`border-2 rounded-2xl p-4 flex flex-col items-center justify-center text-center cursor-pointer transition-all duration-300 relative ${bgClass}`}
-                                >
-                                  {isReserved && (
-                                    <div className="absolute -top-1.5 -right-1.5 bg-rose-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-[9px] font-black shadow" title="Fully Booked">
-                                      ✕
-                                    </div>
-                                  )}
-                                  <span className="text-xs font-black tracking-wide">{table.name}</span>
-                                  <span className="text-[9px] opacity-75 font-semibold mt-1 uppercase tracking-widest">{table.section}</span>
-                                </motion.div>
-                              );
-                            })}
-                          </div>
-
-                          {/* Counter / Bar marker */}
-                          <div className="bg-brand-dark/5 border border-brand-dark/10 rounded-xl py-3 text-center text-[10px] font-black text-brand-dark/40 tracking-widest uppercase">
-                            🍹 FAMILY SEATING BUFFET SECTION
-                          </div>
-                        </div>
-
-                        {/* Capacity warning */}
-                        {selectedTable && (
-                          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-[11px] text-amber-800 flex items-start gap-2.5">
-                            <Users size={16} className="shrink-0 mt-0.5" />
-                            <div>
-                              <p className="font-bold uppercase tracking-wider">Table Details: {restaurantTables.find(t => t.id === selectedTable)?.name}</p>
-                              <p className="mt-1 leading-relaxed">
-                                This table accommodates up to {restaurantTables.find(t => t.id === selectedTable)?.capacity} guests. If your guest count exceeds this size, we may merge adjacent tables on arrival.
-                              </p>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="bg-white border border-brand-gold/10 p-6 rounded-3xl shadow-sm text-center space-y-3">
-                    <h4 className="font-display font-bold text-sm text-brand-dark uppercase tracking-wider">Online Booking Flow</h4>
-                    <p className="text-[11px] text-brand-dark/60 leading-relaxed max-w-md mx-auto">
-                      Upon submission, your booking enters a <strong>Pending Approval</strong> state. The manager reviews it against current seating occupancy and approves. You will receive final confirmations via WhatsApp.
-                    </p>
-                  </div>
                 </div>
               </form>
             </motion.div>
@@ -537,13 +552,30 @@ export default function BookTable() {
                 )}
               </div>
 
+              {/* Unique Reservation QR Code */}
+              <div className="flex flex-col items-center justify-center p-5 bg-gradient-to-br from-brand-gold/5 to-transparent border border-brand-gold/15 rounded-2xl max-w-md mx-auto space-y-3 shadow-sm">
+                <img
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${bookingSuccess.id}`}
+                  alt="Unique Reservation QR Code"
+                  className="w-36 h-36 border border-brand-gold/10 p-2 bg-white rounded-xl shadow-inner"
+                />
+                <div className="text-center space-y-1">
+                  <p className="text-[10px] text-brand-accent font-black uppercase tracking-widest">
+                    Unique Reservation Ticket
+                  </p>
+                  <p className="text-[9px] text-brand-dark/50 font-bold max-w-xs mx-auto">
+                    Please present this QR code at the reception desk for scanning and instant check-in.
+                  </p>
+                </div>
+              </div>
+
               {/* WhatsApp Action Buttons */}
               <div className="pt-4 space-y-3 max-w-md mx-auto">
                 <button
                   onClick={() => handleWhatsAppAction("client")}
                   className="w-full bg-emerald-500 hover:bg-emerald-600 text-white py-4 rounded-xl text-xs font-black tracking-widest uppercase transition-all duration-300 shadow-md flex items-center justify-center gap-2"
                 >
-                  <MessageCircle size={16} />
+                  <WhatsAppIcon size={16} />
                   <span>Get Confirmation on WhatsApp</span>
                 </button>
 
@@ -551,7 +583,7 @@ export default function BookTable() {
                   onClick={() => handleWhatsAppAction("owner")}
                   className="w-full bg-brand-dark hover:bg-brand-accent text-brand-bg hover:text-brand-bg py-3 rounded-xl text-[10px] font-bold tracking-widest uppercase transition-all duration-300 flex items-center justify-center gap-2 border border-brand-dark/10"
                 >
-                  <MessageCircle size={14} />
+                  <WhatsAppIcon size={14} />
                   <span>Notify Manager via WhatsApp</span>
                 </button>
               </div>

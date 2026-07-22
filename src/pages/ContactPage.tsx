@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
-import { Phone, Mail, MessageCircle, ArrowRight, MapPin, Clock } from "lucide-react";
+import { Phone, Mail, ArrowRight, MapPin, Clock } from "lucide-react";
 import { db } from "../utils/db";
+import WhatsAppIcon from "../components/WhatsAppIcon";
 
 interface Branch {
   id: string;
@@ -32,7 +33,7 @@ const branches: Branch[] = [
     phone: "+91 90322 92421",
     hours: "Mon – Sun: 11:00 AM – 11:30 PM",
     mapSrc:
-      "https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3808.7!2d78.3184651!3d17.3484252!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x0%3A0xbf2c80be0a597a76!2sBalaji%20Chilkur%20Family%20Dhaba!5e0!3m2!1sen!2sin!4v1704481029192!5m2!1sen!2sin",
+      "https://maps.google.com/maps?q=17.3484252,78.3184651(Balaji%20Chilkur%20Family%20Dhaba)&ll=17.3518,78.3184651&z=16&hl=en&output=embed",
     googleMapsUrl: "https://www.google.com/maps/place/Balaji+Chilkur+Family+Dhaba/@17.3484252,78.3184651,15z/data=!4m2!3m1!1s0x0:0xbf2c80be0a597a76?sa=X"
   }
 ];
@@ -93,7 +94,7 @@ export default function ContactPage() {
               className="bg-white rounded-2xl p-6 shadow-sm border border-brand-gold/10 hover:shadow-md transition-all duration-300 flex flex-col items-center text-center group"
             >
               <div className="w-12 h-12 rounded-full bg-emerald-50 text-emerald-500 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                <MessageCircle size={22} className="fill-emerald-500/10" />
+                <WhatsAppIcon size={22} />
               </div>
               <h3 className="font-sans font-bold text-brand-dark text-sm">WhatsApp</h3>
               <p className="text-xs text-brand-dark/50 mt-1">Chat with us</p>
@@ -138,8 +139,8 @@ export default function ContactPage() {
               href={`tel:${cleanPhone}`}
               className="bg-white rounded-2xl p-6 shadow-sm border border-brand-gold/10 hover:shadow-md transition-all duration-300 flex flex-col items-center text-center group"
             >
-              <div className="w-12 h-12 rounded-full bg-amber-50 text-brand-gold flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                <Phone size={20} className="fill-brand-gold/10" />
+              <div className="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                <Phone size={20} className="fill-emerald-500/10" />
               </div>
               <h3 className="font-sans font-bold text-brand-dark text-sm">Call Us</h3>
               <p className="text-xs text-brand-accent font-bold mt-1">{mainPhone}</p>
@@ -214,6 +215,27 @@ export default function ContactPage() {
                   <ArrowRight size={14} />
                 </div>
               </a>
+
+              {/* WhatsApp Delivery */}
+              <a
+                href={`https://wa.me/${whatsappNum}?text=Hello,%20I%20would%20like%20to%20order%20food%20for%20delivery.`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-between bg-white rounded-2xl p-5 shadow-sm border-l-4 border-emerald-500 hover:shadow-md transition-shadow group"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-500 flex items-center justify-center text-lg select-none">
+                    <WhatsAppIcon size={20} />
+                  </div>
+                  <div>
+                    <h4 className="font-sans font-bold text-brand-dark text-sm">WhatsApp Delivery</h4>
+                    <p className="text-[10px] text-brand-dark/45">Direct Order</p>
+                  </div>
+                </div>
+                <div className="w-8 h-8 rounded-full bg-brand-bg flex items-center justify-center text-brand-dark group-hover:bg-brand-dark group-hover:text-brand-bg transition-colors">
+                  <ArrowRight size={14} />
+                </div>
+              </a>
             </div>
           </div>
         </div>
@@ -242,7 +264,7 @@ export default function ContactPage() {
                     : "bg-white text-brand-dark border-brand-gold/15 hover:border-brand-accent/40"
                 }`}
               >
-                {branch.id === "pragathinagar" ? "Pragathi Nagar" : "Aziz Nagar"}
+                {branch.id === "pragathinagar" ? "Pragathi Nagar" : "Moinabad"}
               </button>
             ))}
           </div>
@@ -279,7 +301,7 @@ export default function ContactPage() {
 
                 {/* Phone */}
                 <div className="flex items-start gap-4">
-                  <div className="w-9 h-9 rounded-full bg-brand-gold/10 flex items-center justify-center text-brand-gold shrink-0 mt-0.5">
+                  <div className="w-9 h-9 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-600 shrink-0 mt-0.5">
                     <Phone size={16} />
                   </div>
                   <div>

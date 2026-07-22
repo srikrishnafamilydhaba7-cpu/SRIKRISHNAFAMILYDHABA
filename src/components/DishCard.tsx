@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { Star, X, Heart, ShieldAlert, Sparkles, ShoppingBag, MessageCircle } from "lucide-react";
+import { Star, X, Heart, ShieldAlert, Sparkles, ShoppingBag } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { formatPrice } from "../utils/menuHelpers";
+import WhatsAppIcon from "./WhatsAppIcon";
 
 export interface Dish {
   id: string;
@@ -14,6 +15,7 @@ export interface Dish {
   image: string;
   isPopular?: boolean;
   isChefSpecial?: boolean;
+  isSignature?: boolean;
   ingredients?: string[];
   allergens?: string[];
   prepTime?: string;
@@ -27,11 +29,12 @@ interface DishCardProps {
   showImage?: boolean;
 }
 
-export default function DishCard({ dish, onClickOverride, showImage = false }: DishCardProps) {
+export default function DishCard({ dish, onClickOverride, showImage = true }: DishCardProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isLiked, setIsLiked] = useState(false);
   const ordered = false;
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
+  const finalShowImage = showImage;
 
   const handleOrder = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -56,11 +59,11 @@ export default function DishCard({ dish, onClickOverride, showImage = false }: D
         layoutId={`card-container-${dish.id}`}
         onClick={handleCardClick}
         className={`bg-brand-bg rounded-2xl border border-brand-dark/20 hover:border-brand-accent/50 transition-all duration-300 cursor-pointer group relative h-full flex ${
-          showImage ? "flex-col overflow-hidden hover:shadow-lg min-h-[380px]" : "p-5 justify-between items-center gap-4 hover:shadow-md min-h-[120px]"
+          finalShowImage ? "flex-col overflow-hidden hover:shadow-lg min-h-[330px]" : "p-5 justify-between items-center gap-4 hover:shadow-md min-h-[120px]"
         }`}
-        whileHover={{ y: showImage ? -5 : -3 }}
+        whileHover={{ y: finalShowImage ? -5 : -3 }}
       >
-        {showImage ? (
+        {finalShowImage ? (
           <>
             {/* Top: Image Section */}
             <div className="relative w-full aspect-[4/3] overflow-hidden bg-brand-dark/5 shrink-0">
@@ -82,9 +85,9 @@ export default function DishCard({ dish, onClickOverride, showImage = false }: D
                   e.stopPropagation();
                   setIsLiked(!isLiked);
                 }}
-                className="absolute top-3 right-3 w-8 h-8 rounded-full bg-white/80 backdrop-blur-sm hover:bg-white flex items-center justify-center text-brand-accent shadow-sm transition-all duration-300"
+                className="absolute top-3 right-3 w-7 h-7 rounded-full bg-white/80 backdrop-blur-sm hover:bg-white flex items-center justify-center text-brand-accent shadow-sm transition-all duration-300"
               >
-                <Heart size={15} className={isLiked ? "fill-brand-accent text-brand-accent" : ""} />
+                <Heart size={13} className={isLiked ? "fill-brand-accent text-brand-accent" : ""} />
               </button>
 
               {/* Badges on Image */}
@@ -107,40 +110,40 @@ export default function DishCard({ dish, onClickOverride, showImage = false }: D
             </div>
 
             {/* Bottom: Info Section */}
-            <div className="p-5 flex flex-col flex-grow justify-between min-h-[170px]">
+            <div className="p-4 flex flex-col flex-grow justify-between min-h-[135px]">
               <div>
                 {/* Title and Telugu Title */}
-                <h3 className="font-display font-bold text-lg text-brand-dark group-hover:text-brand-accent transition-colors duration-300 truncate">
+                <h3 className="font-display font-bold text-[15px] text-brand-dark group-hover:text-brand-accent transition-colors duration-300 truncate">
                   {dish.title}
                 </h3>
-                <p className="font-telugu text-[12px] text-brand-gold font-semibold mt-0.5 truncate">
+                <p className="font-telugu text-[11px] text-brand-gold font-semibold mt-0.5 truncate">
                   {dish.teluguTitle}
                 </p>
 
                 {/* Short Description */}
                 {dish.description && (
-                  <p className="text-xs text-brand-dark/70 leading-relaxed mt-2 line-clamp-2">
+                  <p className="text-[11px] text-brand-dark/70 leading-relaxed mt-2 line-clamp-2">
                     {dish.description}
                   </p>
                 )}
               </div>
 
               {/* Price & Quick Add Row */}
-              <div className="flex items-center justify-between mt-4 pt-3 border-t border-brand-dark/10">
-                <span className="font-display font-extrabold text-brand-dark text-lg">
+              <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-brand-dark/10">
+                <span className="font-display font-extrabold text-brand-dark text-base">
                   {formatPrice(dish.price)}
                 </span>
 
                 <button
                   onClick={handleOrder}
                   disabled={dish.outOfStock}
-                  className={`text-xs font-bold px-5 py-2 rounded-full shadow-md transition-all duration-300 ${
+                  className={`text-[11px] font-bold px-4 py-1.5 rounded-full shadow-md transition-all duration-300 ${
                     dish.outOfStock 
                       ? "bg-gray-200 text-gray-400 border border-gray-300 shadow-none cursor-not-allowed" 
                       : "bg-brand-accent hover:bg-brand-dark text-brand-bg border border-brand-accent"
                   }`}
                 >
-                  {dish.outOfStock ? "Sold Out" : ordered ? "Added!" : "Order Now"}
+                  {dish.outOfStock ? "Sold Out" : ordered ? "Added!" : "Add to Cart"}
                 </button>
               </div>
             </div>
@@ -217,7 +220,7 @@ export default function DishCard({ dish, onClickOverride, showImage = false }: D
                     : "bg-brand-accent/90 hover:bg-brand-accent text-brand-bg border-transparent"
                 }`}
               >
-                {dish.outOfStock ? "Sold Out" : ordered ? "Added!" : "Order Now"}
+                {dish.outOfStock ? "Sold Out" : ordered ? "Added!" : "Add to Cart"}
               </button>
             </div>
           </>
@@ -270,7 +273,7 @@ export default function DishCard({ dish, onClickOverride, showImage = false }: D
 
               {/* Scrollable Content */}
               <div className="overflow-y-auto pr-1 mb-6 space-y-4">
-                {showImage && dish.image && (
+                {finalShowImage && dish.image && (
                   <div className="w-full aspect-[16/9] rounded-2xl overflow-hidden mb-4 bg-brand-dark/5 shadow-sm">
                     <img src={dish.image} alt={dish.title} className="w-full h-full object-cover" />
                   </div>
@@ -330,7 +333,7 @@ export default function DishCard({ dish, onClickOverride, showImage = false }: D
                   }}
                   className="flex-1 bg-brand-accent hover:bg-brand-dark text-brand-bg font-bold text-sm tracking-wide py-3 px-6 rounded-full shadow-lg transition-all duration-300 flex items-center justify-center space-x-2"
                 >
-                  <span>Order Now</span>
+                  <span>Add to Cart</span>
                 </button>
               </div>
             </motion.div>
@@ -356,10 +359,10 @@ export default function DishCard({ dish, onClickOverride, showImage = false }: D
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-md bg-[#FAF6F0] rounded-[2.5rem] overflow-hidden shadow-2xl border border-brand-gold/20 z-10 flex flex-col"
+              className="relative w-full max-w-md bg-[#F5F5F5] rounded-[2.5rem] overflow-hidden shadow-2xl border border-brand-gold/20 z-10 flex flex-col"
             >
-              {/* Header: Dark Brown branding header */}
-              <div className="bg-[#2B1B12] text-white p-8 flex flex-col items-center text-center space-y-3 relative">
+              {/* Header: Brand Green branding header */}
+              <div className="bg-[#265429] text-white p-8 flex flex-col items-center text-center space-y-3 relative">
                 {/* Close Button */}
                 <button
                   onClick={() => setIsOrderModalOpen(false)}
@@ -430,7 +433,7 @@ export default function DishCard({ dish, onClickOverride, showImage = false }: D
                 >
                   <div className="flex items-center gap-3">
                     <div className="w-8 h-8 rounded-full bg-white text-[#25d366] flex items-center justify-center shadow-sm">
-                      <MessageCircle size={16} className="fill-[#25d366]/10" />
+                      <WhatsAppIcon size={16} />
                     </div>
                     <div className="text-left">
                       <h4 className="text-xs font-bold font-sans">WhatsApp</h4>

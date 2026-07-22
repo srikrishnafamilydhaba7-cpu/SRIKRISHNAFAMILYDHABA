@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import { X, ZoomIn, ZoomOut, ArrowLeft, ArrowRight } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
 import { db } from "../utils/db";
 import type { GalleryItem } from "../utils/db";
 
@@ -71,13 +70,11 @@ export default function GalleryPage() {
         </div>
 
         {/* Masonry Grid */}
-        <motion.div
-          layout
+        <div
           className="columns-1 sm:columns-2 lg:columns-3 gap-6 space-y-6"
         >
           {filteredItems.map((item, idx) => (
-            <motion.div
-              layout
+            <div
               key={item.id}
               onClick={() => {
                 setLightboxIdx(idx);
@@ -98,89 +95,81 @@ export default function GalleryPage() {
                   {item.title}
                 </h3>
               </div>
-            </motion.div>
+            </div>
           ))}
-        </motion.div>
+        </div>
 
         {/* Lightbox Modal */}
-        <AnimatePresence>
-          {currentImage && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-              {/* Backdrop */}
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                onClick={() => setLightboxIdx(null)}
-                className="absolute inset-0 bg-brand-dark/95 backdrop-blur-sm"
-              />
+        {currentImage && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            {/* Backdrop */}
+            <div
+              onClick={() => setLightboxIdx(null)}
+              className="absolute inset-0 bg-brand-dark/95 backdrop-blur-sm"
+            />
 
-              {/* Box */}
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                className="relative max-w-4xl w-full max-h-[90vh] z-10 flex flex-col justify-between items-center"
+            {/* Box */}
+            <div
+              className="relative max-w-4xl w-full max-h-[90vh] z-10 flex flex-col justify-between items-center"
+            >
+              {/* Control Panel */}
+              <div className="absolute top-4 right-4 flex gap-2 z-20">
+                <button
+                  onClick={() => setScale((prev) => Math.max(0.5, prev - 0.25))}
+                  className="w-10 h-10 rounded-full bg-white/10 text-white hover:bg-white/20 flex items-center justify-center transition-colors"
+                >
+                  <ZoomOut size={16} />
+                </button>
+                <button
+                  onClick={() => setScale((prev) => Math.min(2.5, prev + 0.25))}
+                  className="w-10 h-10 rounded-full bg-white/10 text-white hover:bg-white/20 flex items-center justify-center transition-colors"
+                >
+                  <ZoomIn size={16} />
+                </button>
+                <button
+                  onClick={() => setLightboxIdx(null)}
+                  className="w-10 h-10 rounded-full bg-brand-accent text-brand-bg hover:bg-brand-dark flex items-center justify-center transition-colors"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* Left/Right controls */}
+              <button
+                onClick={handlePrev}
+                className="absolute left-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/10 text-white hover:bg-white/20 flex items-center justify-center transition-colors z-20"
               >
-                {/* Control Panel */}
-                <div className="absolute top-4 right-4 flex gap-2 z-20">
-                  <button
-                    onClick={() => setScale((prev) => Math.max(0.5, prev - 0.25))}
-                    className="w-10 h-10 rounded-full bg-white/10 text-white hover:bg-white/20 flex items-center justify-center transition-colors"
-                  >
-                    <ZoomOut size={16} />
-                  </button>
-                  <button
-                    onClick={() => setScale((prev) => Math.min(2.5, prev + 0.25))}
-                    className="w-10 h-10 rounded-full bg-white/10 text-white hover:bg-white/20 flex items-center justify-center transition-colors"
-                  >
-                    <ZoomIn size={16} />
-                  </button>
-                  <button
-                    onClick={() => setLightboxIdx(null)}
-                    className="w-10 h-10 rounded-full bg-brand-accent text-brand-bg hover:bg-brand-dark flex items-center justify-center transition-colors"
-                  >
-                    <X size={16} />
-                  </button>
-                </div>
+                <ArrowLeft size={20} />
+              </button>
 
-                {/* Left/Right controls */}
-                <button
-                  onClick={handlePrev}
-                  className="absolute left-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/10 text-white hover:bg-white/20 flex items-center justify-center transition-colors z-20"
-                >
-                  <ArrowLeft size={20} />
-                </button>
+              <button
+                onClick={handleNext}
+                className="absolute right-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/10 text-white hover:bg-white/20 flex items-center justify-center transition-colors z-20"
+              >
+                <ArrowRight size={20} />
+              </button>
 
-                <button
-                  onClick={handleNext}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/10 text-white hover:bg-white/20 flex items-center justify-center transition-colors z-20"
-                >
-                  <ArrowRight size={20} />
-                </button>
+              {/* Main image container */}
+              <div className="w-full flex justify-center items-center overflow-hidden aspect-video rounded-3xl bg-brand-dark/40 shadow-2xl border border-white/10">
+                <img
+                  key={currentImage.id}
+                  src={currentImage.url}
+                  alt={currentImage.title}
+                  className="max-h-[70vh] max-w-full object-contain transition-transform duration-300"
+                  style={{ transform: `scale(${scale})` }}
+                />
+              </div>
 
-                {/* Main image container */}
-                <div className="w-full flex justify-center items-center overflow-hidden aspect-video rounded-3xl bg-brand-dark/40 shadow-2xl border border-white/10">
-                  <motion.img
-                    key={currentImage.id}
-                    src={currentImage.url}
-                    alt={currentImage.title}
-                    className="max-h-[70vh] max-w-full object-contain transition-transform duration-300"
-                    style={{ transform: `scale(${scale})` }}
-                  />
-                </div>
-
-                {/* Title overlay */}
-                <div className="text-center text-white mt-4 bg-brand-dark/80 px-6 py-2.5 rounded-full border border-white/10 backdrop-blur-md">
-                  <span className="text-[10px] text-brand-gold font-bold uppercase tracking-wider block">
-                    {currentImage.category}
-                  </span>
-                  <p className="text-sm font-semibold mt-0.5">{currentImage.title}</p>
-                </div>
-              </motion.div>
+              {/* Title overlay */}
+              <div className="text-center text-white mt-4 bg-brand-dark/80 px-6 py-2.5 rounded-full border border-white/10 backdrop-blur-md">
+                <span className="text-[10px] text-brand-gold font-bold uppercase tracking-wider block">
+                  {currentImage.category}
+                </span>
+                <p className="text-sm font-semibold mt-0.5">{currentImage.title}</p>
+              </div>
             </div>
-          )}
-        </AnimatePresence>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -1,5 +1,60 @@
 import type { Dish } from "../components/DishCard";
 import { menuData as initialMenu } from "./menuData";
+import { db as firestore } from "./firebase";
+import {
+  collection,
+  doc,
+  getDocs,
+  getDoc,
+  setDoc,
+  updateDoc,
+  deleteDoc,
+  onSnapshot,
+  query,
+  limit
+} from "firebase/firestore";
+
+export interface LoyaltyVoucher {
+  id: string;
+  billNumber: string;
+  phone: string;
+  baseAmount: number;
+  discountPercent: number;
+  discountValue: number;
+  finalAmount: number;
+  category: string;
+  status: "ACTIVE" | "REDEEMED";
+  createdAt: string;
+  expiresAt: string;
+}
+
+export interface OrderItem {
+  id: string;
+  name: string;
+  price: number;
+  quantity: number;
+}
+
+export interface WhatsAppOrder {
+  id: string;
+  customerName: string;
+  phone: string;
+  address: string;
+  items: OrderItem[];
+  totalAmount: number;
+  discountApplied: number;
+  finalAmount: number;
+  status: "Pending" | "Accepted" | "Out For Delivery" | "Delivered" | "Cancelled";
+  createdAt: string;
+}
+
+export interface AuditLog {
+  id: string;
+  user: string;
+  action: string;
+  details: string;
+  timestamp: string;
+}
 
 export interface Booking {
   id: string;
@@ -60,6 +115,11 @@ export interface RestaurantSettings {
   contactPhone: string;
   contactAddress: string;
   googleMapsEmbedUrl: string;
+  // Promo visibility toggles
+  showWebExclusiveBar: boolean;   // top announcement bar
+  showMenuPromo: boolean;          // promo banner on menu page
+  webExclusiveText: string;        // customizable top bar text
+  reservationPromoText?: string;   // customizable reservation desk text
 }
 
 // Initial default reviews
@@ -190,7 +250,11 @@ const defaultSettings: RestaurantSettings = {
   contactEmail: "contact@srikrishnadhaba.com",
   contactPhone: "+91 90322 92421",
   contactAddress: "A/1, Oop Godavari Cuts, Bajrang Towers, 6-109/1760, Pragathi Nagar Rd, Hyderabad, Telangana 500090",
-  googleMapsEmbedUrl: "https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3805.378779646875!2d78.3924395!3d17.5254461!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x3bcb8f0052362da1%3A0xd093fe41bf080e4d!2sSri%20Krishna%20Family%20Dhaba!5e0!3m2!1sen!2sin!4v1704481029192!5m2!1sen!2sin"
+  googleMapsEmbedUrl: "https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3805.378779646875!2d78.3924395!3d17.5254461!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x3bcb8f0052362da1%3A0xd093fe41bf080e4d!2sSri%20Krishna%20Family%20Dhaba!5e0!3m2!1sen!2sin!4v1704481029192!5m2!1sen!2sin",
+  showWebExclusiveBar: true,
+  showMenuPromo: true,
+  webExclusiveText: "Book a table online & get 10% OFF your dining bill",
+  reservationPromoText: "Reserve your dining slot online today to receive a dynamic digital check-out voucher for 10% OFF your total bill amount."
 };
 
 // Generates mock bookings to populate analytics
@@ -232,6 +296,85 @@ const generateMockBookings = (): Booking[] => {
   return list;
 };
 
+const defaultVouchers: LoyaltyVoucher[] = [
+  {
+    id: "RSD-REWARD-4DE9LW-5513",
+    billNumber: "INV-2026-9812",
+    phone: "9849498681",
+    baseAmount: 1000,
+    discountPercent: 55,
+    discountValue: 550,
+    finalAmount: 450,
+    category: "Happy Hour",
+    status: "ACTIVE",
+    createdAt: new Date(Date.now() - 3600000 * 24).toISOString(),
+    expiresAt: new Date(Date.now() + 3600000 * 24 * 14).toISOString()
+  },
+  {
+    id: "RSD-REWARD-7Y2K9P-1288",
+    billNumber: "INV-2026-9810",
+    phone: "9032292421",
+    baseAmount: 1500,
+    discountPercent: 10,
+    discountValue: 150,
+    finalAmount: 1350,
+    category: "Manual Custom",
+    status: "REDEEMED",
+    createdAt: new Date(Date.now() - 3600000 * 48).toISOString(),
+    expiresAt: new Date(Date.now() + 3600000 * 24 * 12).toISOString()
+  }
+];
+
+const defaultOrders: WhatsAppOrder[] = [
+  {
+    id: "ORD-9801",
+    customerName: "Harish Rao",
+    phone: "9848012345",
+    address: "Plot 42, Huda Colony, Pragathi Nagar, Hyderabad",
+    items: [
+      { id: "spl-starter-7", name: "Paneer Chatpata", price: 240, quantity: 2 },
+      { id: "roti-2", name: "Butter Naan", price: 40, quantity: 4 }
+    ],
+    totalAmount: 640,
+    discountApplied: 64,
+    finalAmount: 576,
+    status: "Delivered",
+    createdAt: new Date(Date.now() - 3600000 * 2).toISOString()
+  },
+  {
+    id: "ORD-9802",
+    customerName: "Sandeep G.",
+    phone: "9177098765",
+    address: "Flat 302, Sai Residency, Pragathi Nagar, Hyderabad",
+    items: [
+      { id: "biryani-6", name: "Paneer Biryani", price: 260, quantity: 1 },
+      { id: "softdrink-1", name: "Thums Up", price: 40, quantity: 2 }
+    ],
+    totalAmount: 340,
+    discountApplied: 34,
+    finalAmount: 306,
+    status: "Pending",
+    createdAt: new Date(Date.now() - 1800000).toISOString()
+  }
+];
+
+const defaultAuditLogs: AuditLog[] = [
+  {
+    id: "log-1",
+    user: "Srinivas Rao (Owner)",
+    action: "Voucher Generation",
+    details: "Generated voucher RSD-REWARD-4DE9LW-5513 for Phone 9849498681",
+    timestamp: new Date(Date.now() - 3600000 * 24).toISOString()
+  },
+  {
+    id: "log-2",
+    user: "Karthik Uppari (Manager)",
+    action: "Reservation Status Update",
+    details: "Approved reservation r-1002 for Vijay Devarakonda",
+    timestamp: new Date(Date.now() - 3600000 * 3).toISOString()
+  }
+];
+
 const KEYS = {
   MENU: "skd_menu",
   BOOKINGS: "skd_bookings",
@@ -239,11 +382,65 @@ const KEYS = {
   GALLERY: "skd_gallery",
   CONTACTS: "skd_contacts",
   SETTINGS: "skd_settings",
-  VISITS: "skd_visits"
+  VISITS: "skd_visits",
+  VOUCHERS: "skd_vouchers",
+  ORDERS: "skd_orders",
+  AUDIT_LOGS: "skd_audit_logs"
 };
+
+const appId = "sri-krishna-dhaba";
+const publicPath = `publicData/${appId}`;
+
+function cleanForFirestore(obj: any): any {
+  if (obj === null || obj === undefined) return null;
+  if (typeof obj !== "object") return obj;
+  if (Array.isArray(obj)) return obj.map(cleanForFirestore);
+  const cleaned: any = {};
+  for (const key of Object.keys(obj)) {
+    const val = obj[key];
+    if (val !== undefined) {
+      cleaned[key] = cleanForFirestore(val);
+    }
+  }
+  return cleaned;
+}
+
+// Helper to seed Firestore collection if empty
+async function seedCollection(colName: string, defaultList: any[]) {
+  const colRef = collection(firestore, publicPath, colName);
+  const snap = await getDocs(query(colRef, limit(1)));
+  if (snap.empty) {
+    console.log(`Seeding collection ${colName}...`);
+    for (const item of defaultList) {
+      const docRef = doc(firestore, publicPath, colName, item.id);
+      await setDoc(docRef, cleanForFirestore(item));
+    }
+  }
+}
+
+async function seedSettings() {
+  const docRef = doc(firestore, publicPath, "settings", "default");
+  const docSnap = await getDoc(docRef);
+  if (!docSnap.exists()) {
+    console.log("Seeding settings...");
+    await setDoc(docRef, defaultSettings);
+  }
+}
+
+async function seedVisits() {
+  const docRef = doc(firestore, publicPath, "visits", "counter");
+  const docSnap = await getDoc(docRef);
+  if (!docSnap.exists()) {
+    console.log("Seeding visits...");
+    await setDoc(docRef, { count: 254 });
+  }
+}
+
+let listenersInitialized = false;
 
 export const db = {
   init() {
+    // 1. Initial local storage fallback so app works immediately
     if (!localStorage.getItem(KEYS.MENU)) {
       const cleanedMenu = initialMenu.map((dish) => ({
         ...dish,
@@ -270,23 +467,117 @@ export const db = {
     if (!localStorage.getItem(KEYS.VISITS)) {
       localStorage.setItem(KEYS.VISITS, String(254));
     }
+    if (!localStorage.getItem(KEYS.VOUCHERS)) {
+      localStorage.setItem(KEYS.VOUCHERS, JSON.stringify(defaultVouchers));
+    }
+    if (!localStorage.getItem(KEYS.ORDERS)) {
+      localStorage.setItem(KEYS.ORDERS, JSON.stringify(defaultOrders));
+    }
+    if (!localStorage.getItem(KEYS.AUDIT_LOGS)) {
+      localStorage.setItem(KEYS.AUDIT_LOGS, JSON.stringify(defaultAuditLogs));
+    }
+
+    // 2. Setup real-time listeners for Firestore if not already initialized
+    if (!listenersInitialized) {
+      listenersInitialized = true;
+
+      // Asynchronously seed Firestore collections if empty
+      (async () => {
+        try {
+          await seedCollection("menu", initialMenu.map(d => ({ ...d, outOfStock: d.outOfStock || false, hidden: d.hidden || false })));
+          await seedCollection("reviews", defaultReviews);
+          await seedCollection("gallery", defaultGallery);
+          await seedSettings();
+          await seedCollection("bookings", generateMockBookings());
+          await seedCollection("vouchers", defaultVouchers);
+          await seedCollection("orders", defaultOrders);
+          await seedCollection("audit_logs", defaultAuditLogs);
+          await seedVisits();
+        } catch (e) {
+          console.error("Error seeding Firestore:", e);
+        }
+      })();
+
+      // Setup Firestore -> LocalStorage real-time sync
+      const syncCollection = (colName: string, storageKey: string) => {
+        const colRef = collection(firestore, publicPath, colName);
+        onSnapshot(colRef, (snapshot) => {
+          const list: any[] = [];
+          snapshot.forEach((doc) => {
+            list.push({ ...doc.data(), id: doc.id });
+          });
+          if (list.length > 0) {
+            localStorage.setItem(storageKey, JSON.stringify(list));
+            window.dispatchEvent(new Event("storage"));
+          } else {
+            const existing = localStorage.getItem(storageKey);
+            if (!existing || existing === "[]") {
+              localStorage.setItem(storageKey, JSON.stringify(list));
+              window.dispatchEvent(new Event("storage"));
+            }
+          }
+        }, (error) => {
+          console.error(`Error in onSnapshot for ${colName}:`, error);
+        });
+      };
+
+      syncCollection("menu", KEYS.MENU);
+      syncCollection("reviews", KEYS.REVIEWS);
+      syncCollection("gallery", KEYS.GALLERY);
+      syncCollection("bookings", KEYS.BOOKINGS);
+      syncCollection("vouchers", KEYS.VOUCHERS);
+      syncCollection("orders", KEYS.ORDERS);
+      syncCollection("audit_logs", KEYS.AUDIT_LOGS);
+      syncCollection("contacts", KEYS.CONTACTS);
+
+      onSnapshot(doc(firestore, publicPath, "settings", "default"), (docSnap) => {
+        if (docSnap.exists()) {
+          localStorage.setItem(KEYS.SETTINGS, JSON.stringify(docSnap.data()));
+          window.dispatchEvent(new Event("storage"));
+          window.dispatchEvent(new Event("skd_settings_updated"));
+        }
+      });
+
+      onSnapshot(doc(firestore, publicPath, "visits", "counter"), (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          localStorage.setItem(KEYS.VISITS, String(data.count || 254));
+          window.dispatchEvent(new Event("storage"));
+        }
+      });
+    }
   },
 
   // ─── MENU DB ─────────────────────────────────────────────────────────────
   getMenu(): Dish[] {
     this.init();
-    return JSON.parse(localStorage.getItem(KEYS.MENU) || "[]");
+    const stored = localStorage.getItem(KEYS.MENU);
+    if (!stored || stored === "[]") {
+      const cleanedMenu = initialMenu.map((dish) => ({
+        ...dish,
+        outOfStock: dish.outOfStock || false,
+        hidden: dish.hidden || false
+      }));
+      localStorage.setItem(KEYS.MENU, JSON.stringify(cleanedMenu));
+      return cleanedMenu;
+    }
+    return JSON.parse(stored);
   },
 
   addDish(dish: Omit<Dish, "id"> & { id?: string }): Dish {
-    const menu = this.getMenu();
+    const id = dish.id || `dish-${Date.now()}`;
     const newDish = {
       ...dish,
-      id: dish.id || `dish-${Date.now()}`,
+      id,
       rating: dish.rating || 4.0
     } as Dish;
+
+    const menu = this.getMenu();
     menu.push(newDish);
     localStorage.setItem(KEYS.MENU, JSON.stringify(menu));
+    window.dispatchEvent(new Event("storage"));
+
+    setDoc(doc(firestore, publicPath, "menu", id), newDish).catch(e => console.error(e));
     return newDish;
   },
 
@@ -294,15 +585,22 @@ export const db = {
     const menu = this.getMenu();
     const index = menu.findIndex((d) => d.id === id);
     if (index === -1) throw new Error("Dish not found");
-    menu[index] = { ...menu[index], ...updates };
+    const updated = { ...menu[index], ...updates };
+    menu[index] = updated;
     localStorage.setItem(KEYS.MENU, JSON.stringify(menu));
-    return menu[index];
+    window.dispatchEvent(new Event("storage"));
+
+    updateDoc(doc(firestore, publicPath, "menu", id), updates).catch(e => console.error(e));
+    return updated;
   },
 
   deleteDish(id: string): void {
     const menu = this.getMenu();
     const filtered = menu.filter((d) => d.id !== id);
     localStorage.setItem(KEYS.MENU, JSON.stringify(filtered));
+    window.dispatchEvent(new Event("storage"));
+
+    deleteDoc(doc(firestore, publicPath, "menu", id)).catch(e => console.error(e));
   },
 
   // ─── BOOKINGS DB ─────────────────────────────────────────────────────────
@@ -312,15 +610,20 @@ export const db = {
   },
 
   addBooking(booking: Omit<Booking, "id" | "status" | "createdAt"> & { status?: Booking["status"] }): Booking {
-    const bookings = this.getBookings();
+    const id = `r-${Date.now().toString().slice(-4)}`;
     const newBooking: Booking = {
       ...booking,
-      id: `r-${Date.now().toString().slice(-4)}`,
+      id,
       status: booking.status || "Pending",
       createdAt: new Date().toISOString()
     };
+
+    const bookings = this.getBookings();
     bookings.push(newBooking);
     localStorage.setItem(KEYS.BOOKINGS, JSON.stringify(bookings));
+    window.dispatchEvent(new Event("storage"));
+
+    setDoc(doc(firestore, publicPath, "bookings", id), newBooking).catch(e => console.error(e));
     return newBooking;
   },
 
@@ -331,6 +634,11 @@ export const db = {
     bookings[index].status = status;
     if (notes !== undefined) bookings[index].notes = notes;
     localStorage.setItem(KEYS.BOOKINGS, JSON.stringify(bookings));
+    window.dispatchEvent(new Event("storage"));
+
+    const updates: Partial<Booking> = { status };
+    if (notes !== undefined) updates.notes = notes;
+    updateDoc(doc(firestore, publicPath, "bookings", id), updates).catch(e => console.error(e));
     return bookings[index];
   },
 
@@ -338,15 +646,22 @@ export const db = {
     const bookings = this.getBookings();
     const index = bookings.findIndex((b) => b.id === id);
     if (index === -1) throw new Error("Booking not found");
-    bookings[index] = { ...bookings[index], ...updates };
+    const updated = { ...bookings[index], ...updates };
+    bookings[index] = updated;
     localStorage.setItem(KEYS.BOOKINGS, JSON.stringify(bookings));
-    return bookings[index];
+    window.dispatchEvent(new Event("storage"));
+
+    updateDoc(doc(firestore, publicPath, "bookings", id), updates).catch(e => console.error(e));
+    return updated;
   },
 
   deleteBooking(id: string): void {
     const bookings = this.getBookings();
     const filtered = bookings.filter((b) => b.id !== id);
     localStorage.setItem(KEYS.BOOKINGS, JSON.stringify(filtered));
+    window.dispatchEvent(new Event("storage"));
+
+    deleteDoc(doc(firestore, publicPath, "bookings", id)).catch(e => console.error(e));
   },
 
   // ─── REVIEWS DB ──────────────────────────────────────────────────────────
@@ -356,17 +671,22 @@ export const db = {
   },
 
   addReview(review: Omit<Review, "id" | "avatar" | "date" | "status">): Review {
-    const reviews = this.getReviews();
     const initials = review.name.split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2);
+    const id = `rev-${Date.now()}`;
     const newReview: Review = {
       ...review,
-      id: `rev-${Date.now()}`,
+      id,
       avatar: initials || "G",
       date: "Just now",
       status: "Pending"
     };
+
+    const reviews = this.getReviews();
     reviews.push(newReview);
     localStorage.setItem(KEYS.REVIEWS, JSON.stringify(reviews));
+    window.dispatchEvent(new Event("storage"));
+
+    setDoc(doc(firestore, publicPath, "reviews", id), newReview).catch(e => console.error(e));
     return newReview;
   },
 
@@ -377,6 +697,11 @@ export const db = {
     reviews[index].status = status;
     if (pinned !== undefined) reviews[index].pinned = pinned;
     localStorage.setItem(KEYS.REVIEWS, JSON.stringify(reviews));
+    window.dispatchEvent(new Event("storage"));
+
+    const updates: Partial<Review> = { status };
+    if (pinned !== undefined) updates.pinned = pinned;
+    updateDoc(doc(firestore, publicPath, "reviews", id), updates).catch(e => console.error(e));
     return reviews[index];
   },
 
@@ -384,6 +709,9 @@ export const db = {
     const reviews = this.getReviews();
     const filtered = reviews.filter((r) => r.id !== id);
     localStorage.setItem(KEYS.REVIEWS, JSON.stringify(filtered));
+    window.dispatchEvent(new Event("storage"));
+
+    deleteDoc(doc(firestore, publicPath, "reviews", id)).catch(e => console.error(e));
   },
 
   // ─── GALLERY DB ──────────────────────────────────────────────────────────
@@ -393,13 +721,18 @@ export const db = {
   },
 
   addImage(item: Omit<GalleryItem, "id">): GalleryItem {
-    const gallery = this.getGallery();
+    const id = `g-${Date.now()}`;
     const newItem = {
       ...item,
-      id: `g-${Date.now()}`
+      id
     };
+
+    const gallery = this.getGallery();
     gallery.push(newItem);
     localStorage.setItem(KEYS.GALLERY, JSON.stringify(gallery));
+    window.dispatchEvent(new Event("storage"));
+
+    setDoc(doc(firestore, publicPath, "gallery", id), newItem).catch(e => console.error(e));
     return newItem;
   },
 
@@ -407,10 +740,31 @@ export const db = {
     const gallery = this.getGallery();
     const filtered = gallery.filter((g) => g.id !== id);
     localStorage.setItem(KEYS.GALLERY, JSON.stringify(filtered));
+    window.dispatchEvent(new Event("storage"));
+
+    deleteDoc(doc(firestore, publicPath, "gallery", id)).catch(e => console.error(e));
   },
 
   updateGallery(items: GalleryItem[]): void {
     localStorage.setItem(KEYS.GALLERY, JSON.stringify(items));
+    window.dispatchEvent(new Event("storage"));
+
+    // Write all gallery items to Firestore
+    (async () => {
+      try {
+        // Delete all first
+        const snap = await getDocs(collection(firestore, publicPath, "gallery"));
+        for (const docSnap of snap.docs) {
+          await deleteDoc(doc(firestore, publicPath, "gallery", docSnap.id));
+        }
+        // Write new ones
+        for (const item of items) {
+          await setDoc(doc(firestore, publicPath, "gallery", item.id), item);
+        }
+      } catch (e) {
+        console.error("Error updating gallery in Firestore:", e);
+      }
+    })();
   },
 
   // ─── CONTACTS DB ─────────────────────────────────────────────────────────
@@ -420,15 +774,20 @@ export const db = {
   },
 
   addContact(inquiry: Omit<ContactInquiry, "id" | "status" | "createdAt">): ContactInquiry {
-    const contacts = this.getContacts();
+    const id = `c-${Date.now()}`;
     const newInquiry: ContactInquiry = {
       ...inquiry,
-      id: `c-${Date.now()}`,
+      id,
       status: "Pending",
       createdAt: new Date().toISOString()
     };
+
+    const contacts = this.getContacts();
     contacts.push(newInquiry);
     localStorage.setItem(KEYS.CONTACTS, JSON.stringify(contacts));
+    window.dispatchEvent(new Event("storage"));
+
+    setDoc(doc(firestore, publicPath, "contacts", id), newInquiry).catch(e => console.error(e));
     return newInquiry;
   },
 
@@ -438,6 +797,9 @@ export const db = {
     if (index === -1) throw new Error("Inquiry not found");
     contacts[index].status = status;
     localStorage.setItem(KEYS.CONTACTS, JSON.stringify(contacts));
+    window.dispatchEvent(new Event("storage"));
+
+    updateDoc(doc(firestore, publicPath, "contacts", id), { status }).catch(e => console.error(e));
     return contacts[index];
   },
 
@@ -445,18 +807,32 @@ export const db = {
     const contacts = this.getContacts();
     const filtered = contacts.filter((c) => c.id !== id);
     localStorage.setItem(KEYS.CONTACTS, JSON.stringify(filtered));
+    window.dispatchEvent(new Event("storage"));
+
+    deleteDoc(doc(firestore, publicPath, "contacts", id)).catch(e => console.error(e));
   },
 
   // ─── SETTINGS DB ─────────────────────────────────────────────────────────
   getSettings(): RestaurantSettings {
     this.init();
-    return JSON.parse(localStorage.getItem(KEYS.SETTINGS) || JSON.stringify(defaultSettings));
+    const stored = localStorage.getItem(KEYS.SETTINGS);
+    if (!stored) return defaultSettings;
+    try {
+      const parsed = JSON.parse(stored);
+      return { ...defaultSettings, ...parsed };
+    } catch (e) {
+      return defaultSettings;
+    }
   },
 
   updateSettings(updates: Partial<RestaurantSettings>): RestaurantSettings {
     const current = this.getSettings();
     const updated = { ...current, ...updates };
     localStorage.setItem(KEYS.SETTINGS, JSON.stringify(updated));
+    window.dispatchEvent(new Event("storage"));
+    window.dispatchEvent(new Event("skd_settings_updated"));
+
+    updateDoc(doc(firestore, publicPath, "settings", "default"), updates).catch(e => console.error(e));
     return updated;
   },
 
@@ -466,7 +842,15 @@ export const db = {
     const current = parseInt(localStorage.getItem(KEYS.VISITS) || "120", 10);
     const updated = current + 1;
     localStorage.setItem(KEYS.VISITS, String(updated));
+    window.dispatchEvent(new Event("storage"));
+
+    setDoc(doc(firestore, publicPath, "visits", "counter"), { count: updated }).catch(e => console.error(e));
     return updated;
+  },
+
+  getWebsiteVisits(): number {
+    this.init();
+    return parseInt(localStorage.getItem(KEYS.VISITS) || "250", 10);
   },
 
   getAnalytics() {
@@ -576,5 +960,175 @@ export const db = {
       `- Notes: ${booking.instructions || "None"}\n\n` +
       `Manage dashboard: https://app22-seven.vercel.app/#/admin`
     );
+  },
+
+  // ─── LOYALTY VOUCHERS DB ──────────────────────────────────────────────────
+  getVouchers(): LoyaltyVoucher[] {
+    this.init();
+    return JSON.parse(localStorage.getItem(KEYS.VOUCHERS) || "[]");
+  },
+
+  addVoucher(voucher: Omit<LoyaltyVoucher, "id" | "status" | "createdAt" | "expiresAt"> & { id?: string }): LoyaltyVoucher {
+    const id = voucher.id || `RSD-REWARD-${Math.random().toString(36).substring(2, 8).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const expiryDays = 14;
+    const newVoucher: LoyaltyVoucher = {
+      ...voucher,
+      id,
+      status: "ACTIVE",
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 3600000 * 24 * expiryDays).toISOString()
+    };
+
+    const vouchers = this.getVouchers();
+    vouchers.push(newVoucher);
+    localStorage.setItem(KEYS.VOUCHERS, JSON.stringify(vouchers));
+    window.dispatchEvent(new Event("storage"));
+
+    setDoc(doc(firestore, publicPath, "vouchers", id), newVoucher).catch(e => console.error(e));
+    this.addAuditLog("Voucher Generation", `Generated voucher ${id} for phone ${voucher.phone}`);
+    return newVoucher;
+  },
+
+  redeemVoucher(id: string): LoyaltyVoucher {
+    const vouchers = this.getVouchers();
+    const index = vouchers.findIndex((v) => v.id === id);
+    if (index === -1) throw new Error("Voucher not found");
+    if (vouchers[index].status === "REDEEMED") throw new Error("Voucher has already been redeemed");
+    vouchers[index].status = "REDEEMED";
+    localStorage.setItem(KEYS.VOUCHERS, JSON.stringify(vouchers));
+    window.dispatchEvent(new Event("storage"));
+
+    updateDoc(doc(firestore, publicPath, "vouchers", id), { status: "REDEEMED" }).catch(e => console.error(e));
+    this.addAuditLog("Voucher Redemption", `Redeemed voucher ${id}`);
+    return vouchers[index];
+  },
+
+  deleteVoucher(id: string): void {
+    const vouchers = this.getVouchers();
+    const filtered = vouchers.filter((v) => v.id !== id);
+    localStorage.setItem(KEYS.VOUCHERS, JSON.stringify(filtered));
+    window.dispatchEvent(new Event("storage"));
+
+    deleteDoc(doc(firestore, publicPath, "vouchers", id)).catch(e => console.error(e));
+  },
+
+  // ─── WHATSAPP ORDERS DB ───────────────────────────────────────────────────
+  getOrders(): WhatsAppOrder[] {
+    this.init();
+    return JSON.parse(localStorage.getItem(KEYS.ORDERS) || "[]");
+  },
+
+  addOrder(order: Omit<WhatsAppOrder, "id" | "status" | "createdAt">): WhatsAppOrder {
+    const id = `ORD-${Math.floor(9000 + Math.random() * 999)}`;
+    const newOrder: WhatsAppOrder = {
+      ...order,
+      id,
+      status: "Pending",
+      createdAt: new Date().toISOString()
+    };
+
+    const orders = this.getOrders();
+    orders.push(newOrder);
+    localStorage.setItem(KEYS.ORDERS, JSON.stringify(orders));
+    window.dispatchEvent(new Event("storage"));
+
+    setDoc(doc(firestore, publicPath, "orders", id), newOrder).catch(e => console.error(e));
+    this.addAuditLog("Order Received", `New web order received from ${newOrder.customerName} (${id})`);
+    return newOrder;
+  },
+
+  updateOrderStatus(id: string, status: WhatsAppOrder["status"]): WhatsAppOrder {
+    const orders = this.getOrders();
+    const index = orders.findIndex((o) => o.id === id);
+    if (index === -1) throw new Error("Order not found");
+    orders[index].status = status;
+    localStorage.setItem(KEYS.ORDERS, JSON.stringify(orders));
+    window.dispatchEvent(new Event("storage"));
+
+    updateDoc(doc(firestore, publicPath, "orders", id), { status }).catch(e => console.error(e));
+    this.addAuditLog("Order Status Update", `Updated order ${id} status to ${status}`);
+    return orders[index];
+  },
+
+  deleteOrder(id: string): void {
+    const orders = this.getOrders();
+    const filtered = orders.filter((o) => o.id !== id);
+    localStorage.setItem(KEYS.ORDERS, JSON.stringify(filtered));
+    window.dispatchEvent(new Event("storage"));
+
+    deleteDoc(doc(firestore, publicPath, "orders", id)).catch(e => console.error(e));
+  },
+
+  // ─── AUDIT LOGS DB ────────────────────────────────────────────────────────
+  getAuditLogs(): AuditLog[] {
+    this.init();
+    return JSON.parse(localStorage.getItem(KEYS.AUDIT_LOGS) || "[]");
+  },
+
+  addAuditLog(action: string, details: string, user: string = "Admin"): AuditLog {
+    const logs = this.getAuditLogs();
+    let sessionUser = user;
+    try {
+      const savedUser = localStorage.getItem("skd_admin_session");
+      if (savedUser) {
+        const parsed = JSON.parse(savedUser);
+        sessionUser = parsed.name || parsed.username || user;
+      }
+    } catch (e) {}
+    const id = `log-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    const newLog: AuditLog = {
+      id,
+      user: sessionUser,
+      action,
+      details,
+      timestamp: new Date().toISOString()
+    };
+    logs.push(newLog);
+    const sliced = logs.slice(-200);
+    localStorage.setItem(KEYS.AUDIT_LOGS, JSON.stringify(sliced));
+    return newLog;
+  },
+
+  deleteCustomers(phones: string[]): void {
+    const bookings = this.getBookings();
+    const filteredBookings = bookings.filter((b) => !phones.includes(b.phone));
+    localStorage.setItem(KEYS.BOOKINGS, JSON.stringify(filteredBookings));
+
+    const orders = this.getOrders();
+    const filteredOrders = orders.filter((o) => !phones.includes(o.phone));
+    localStorage.setItem(KEYS.ORDERS, JSON.stringify(filteredOrders));
+
+    const vouchers = this.getVouchers();
+    const filteredVouchers = vouchers.filter((v) => !phones.includes(v.phone));
+    localStorage.setItem(KEYS.VOUCHERS, JSON.stringify(filteredVouchers));
+    
+    window.dispatchEvent(new Event("storage"));
+
+    (async () => {
+      try {
+        const bookingsSnapshot = await getDocs(collection(firestore, publicPath, "bookings"));
+        bookingsSnapshot.forEach(docSnap => {
+          if (phones.includes(docSnap.data().phone)) {
+            deleteDoc(doc(firestore, publicPath, "bookings", docSnap.id));
+          }
+        });
+        const ordersSnapshot = await getDocs(collection(firestore, publicPath, "orders"));
+        ordersSnapshot.forEach(docSnap => {
+          if (phones.includes(docSnap.data().phone)) {
+            deleteDoc(doc(firestore, publicPath, "orders", docSnap.id));
+          }
+        });
+        const vouchersSnapshot = await getDocs(collection(firestore, publicPath, "vouchers"));
+        vouchersSnapshot.forEach(docSnap => {
+          if (phones.includes(docSnap.data().phone)) {
+            deleteDoc(doc(firestore, publicPath, "vouchers", docSnap.id));
+          }
+        });
+      } catch (e) {
+        console.error("Error in deleteCustomers from Firestore:", e);
+      }
+    })();
+
+    this.addAuditLog("Customer Deletion", `Deleted customer profiles and all associated bookings/orders/vouchers for mobile numbers: ${phones.join(", ")}`);
   }
 };
