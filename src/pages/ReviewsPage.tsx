@@ -152,7 +152,7 @@ export default function ReviewsPage() {
             {[5, 4, 3, 2, 1].map((stars) => {
               const count = stats.counts[5 - stars];
               const totalForBars = reviews.length;
-              const percentage = ((count / totalForBars) * 100).toFixed(0);
+              const percentage = totalForBars > 0 ? ((count / totalForBars) * 100).toFixed(0) : "0";
 
               return (
                 <div key={stars} className="flex items-center gap-4 text-xs font-semibold text-brand-dark">
@@ -238,15 +238,18 @@ export default function ReviewsPage() {
               {/* Row 1: Scrolling Left */}
               <div className="marquee-container flex gap-6 overflow-hidden py-2 relative">
                 <div className="marquee-content flex gap-6 animate-marquee-left shrink-0">
-                  {Array.from({ length: Math.ceil(10 / filteredReviews.length) + 1 })
-                    .flatMap(() => filteredReviews)
-                    .map((review, idx) => (
+                  {(() => {
+                    const repeated = Array.from({ length: Math.ceil(10 / filteredReviews.length) })
+                      .flatMap(() => filteredReviews);
+                    const marqueeItems = [...repeated, ...repeated];
+                    return marqueeItems.map((review, idx) => (
                       <TestimonialCard
                         key={`row1-${review.id}-${idx}`}
                         testimonial={review}
                         onClick={() => setSelectedReview(review)}
                       />
-                    ))}
+                    ));
+                  })()}
                 </div>
               </div>
 
@@ -254,16 +257,19 @@ export default function ReviewsPage() {
               {filteredReviews.length > 2 && (
                 <div className="marquee-container hidden md:flex gap-6 overflow-hidden py-2 relative">
                   <div className="marquee-content flex gap-6 animate-marquee-right shrink-0">
-                    {Array.from({ length: Math.ceil(10 / filteredReviews.length) + 1 })
-                      .flatMap(() => filteredReviews)
-                      .reverse()
-                      .map((review, idx) => (
+                    {(() => {
+                      const reversed = [...filteredReviews].reverse();
+                      const repeated = Array.from({ length: Math.ceil(10 / reversed.length) })
+                        .flatMap(() => reversed);
+                      const marqueeItems = [...repeated, ...repeated];
+                      return marqueeItems.map((review, idx) => (
                         <TestimonialCard
                           key={`row2-${review.id}-${idx}`}
                           testimonial={review}
-                        onClick={() => setSelectedReview(review)}
+                          onClick={() => setSelectedReview(review)}
                         />
-                      ))}
+                      ));
+                    })()}
                   </div>
                 </div>
               )}

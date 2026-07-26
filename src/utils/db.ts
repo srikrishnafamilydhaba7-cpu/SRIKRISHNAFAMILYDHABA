@@ -507,8 +507,21 @@ export const db = {
             list.push({ ...doc.data(), id: doc.id });
           });
           if (list.length > 0) {
-            localStorage.setItem(storageKey, JSON.stringify(list));
-            window.dispatchEvent(new Event("storage"));
+            if (colName === "menu") {
+              const current = db.getMenu();
+              const map = new Map(current.map(d => [d.id, d]));
+              list.forEach(item => {
+                if (item && item.id) {
+                  map.set(item.id, { ...map.get(item.id), ...item });
+                }
+              });
+              const merged = Array.from(map.values());
+              localStorage.setItem(storageKey, JSON.stringify(merged));
+              window.dispatchEvent(new Event("storage"));
+            } else {
+              localStorage.setItem(storageKey, JSON.stringify(list));
+              window.dispatchEvent(new Event("storage"));
+            }
           } else {
             const existing = localStorage.getItem(storageKey);
             if (!existing || existing === "[]") {
@@ -516,8 +529,8 @@ export const db = {
               window.dispatchEvent(new Event("storage"));
             }
           }
-        }, (error) => {
-          console.error(`Error in onSnapshot for ${colName}:`, error);
+        }, (_error) => {
+          // Fallback to local data cleanly if Firestore permissions/network are unavailable
         });
       };
 
@@ -536,7 +549,7 @@ export const db = {
           window.dispatchEvent(new Event("storage"));
           window.dispatchEvent(new Event("skd_settings_updated"));
         }
-      });
+      }, () => {});
 
       onSnapshot(doc(firestore, publicPath, "visits", "counter"), (docSnap) => {
         if (docSnap.exists()) {
@@ -544,7 +557,7 @@ export const db = {
           localStorage.setItem(KEYS.VISITS, String(data.count || 254));
           window.dispatchEvent(new Event("storage"));
         }
-      });
+      }, () => {});
     }
   },
 
@@ -552,16 +565,52 @@ export const db = {
   getMenu(): Dish[] {
     this.init();
     const stored = localStorage.getItem(KEYS.MENU);
-    if (!stored || stored === "[]") {
-      const cleanedMenu = initialMenu.map((dish) => ({
-        ...dish,
-        outOfStock: dish.outOfStock || false,
-        hidden: dish.hidden || false
-      }));
-      localStorage.setItem(KEYS.MENU, JSON.stringify(cleanedMenu));
-      return cleanedMenu;
+    let menuList: Dish[] = [];
+    if (stored) {
+      try {
+        menuList = JSON.parse(stored);
+      } catch (e) {
+        menuList = [];
+      }
     }
-    return JSON.parse(stored);
+
+    const existingMap = new Map<string, Dish>();
+    if (Array.isArray(menuList)) {
+      menuList.forEach((dish) => {
+        if (dish && dish.id) {
+          existingMap.set(dish.id, dish);
+        }
+      });
+    }
+
+    let updated = false;
+
+    // Ensure all items from initialMenu are present and image paths are synced
+    initialMenu.forEach((masterDish) => {
+      const existing = existingMap.get(masterDish.id);
+      if (!existing) {
+        existingMap.set(masterDish.id, {
+          ...masterDish,
+          outOfStock: masterDish.outOfStock || false,
+          hidden: masterDish.hidden || false
+        });
+        updated = true;
+      } else {
+        if (masterDish.image && existing.image !== masterDish.image) {
+          existing.image = masterDish.image;
+          updated = true;
+        }
+      }
+    });
+
+    const fullMenu = Array.from(existingMap.values());
+
+    if (updated || !stored || menuList.length < initialMenu.length) {
+      localStorage.setItem(KEYS.MENU, JSON.stringify(fullMenu));
+      window.dispatchEvent(new Event("storage"));
+    }
+
+    return fullMenu;
   },
 
   addDish(dish: Omit<Dish, "id"> & { id?: string }): Dish {
@@ -577,7 +626,15 @@ export const db = {
     localStorage.setItem(KEYS.MENU, JSON.stringify(menu));
     window.dispatchEvent(new Event("storage"));
 
-    setDoc(doc(firestore, publicPath, "menu", id), newDish).catch(e => console.error(e));
+    const cleanedDish = Object.keys(newDish).reduce((acc, key) => {
+      const val = (newDish as any)[key];
+      if (val !== undefined) {
+        acc[key] = val;
+      }
+      return acc;
+    }, {} as any);
+
+    setDoc(doc(firestore, publicPath, "menu", id), cleanedDish).catch(e => console.error(e));
     return newDish;
   },
 
@@ -590,7 +647,15 @@ export const db = {
     localStorage.setItem(KEYS.MENU, JSON.stringify(menu));
     window.dispatchEvent(new Event("storage"));
 
-    updateDoc(doc(firestore, publicPath, "menu", id), updates).catch(e => console.error(e));
+    const cleanedUpdates = Object.keys(updates).reduce((acc, key) => {
+      const val = (updates as any)[key];
+      if (val !== undefined) {
+        acc[key] = val;
+      }
+      return acc;
+    }, {} as any);
+
+    updateDoc(doc(firestore, publicPath, "menu", id), cleanedUpdates).catch(e => console.error(e));
     return updated;
   },
 
@@ -1087,6 +1152,74 @@ export const db = {
     const sliced = logs.slice(-200);
     localStorage.setItem(KEYS.AUDIT_LOGS, JSON.stringify(sliced));
     return newLog;
+  },
+
+  deleteBookingsByDate(dateString: string): void {
+    const bookings = this.getBookings();
+    const filtered = bookings.filter((b) => b.date !== dateString);
+    localStorage.setItem(KEYS.BOOKINGS, JSON.stringify(filtered));
+    window.dispatchEvent(new Event("storage"));
+
+    (async () => {
+      try {
+        const snap = await getDocs(collection(firestore, publicPath, "bookings"));
+        for (const docSnap of snap.docs) {
+          if (docSnap.data().date === dateString) {
+            await deleteDoc(doc(firestore, publicPath, "bookings", docSnap.id));
+          }
+        }
+      } catch (e) {
+        console.error("Error in deleteBookingsByDate Firestore:", e);
+      }
+    })();
+
+    this.addAuditLog("Bookings Deletion", `Deleted all reservations for date: ${dateString}`);
+  },
+
+  deleteOrdersByDate(dateString: string): void {
+    const orders = this.getOrders();
+    const filtered = orders.filter((o) => o.createdAt.split("T")[0] !== dateString);
+    localStorage.setItem(KEYS.ORDERS, JSON.stringify(filtered));
+    window.dispatchEvent(new Event("storage"));
+
+    (async () => {
+      try {
+        const snap = await getDocs(collection(firestore, publicPath, "orders"));
+        for (const docSnap of snap.docs) {
+          const createdAt = docSnap.data().createdAt;
+          if (createdAt && createdAt.split("T")[0] === dateString) {
+            await deleteDoc(doc(firestore, publicPath, "orders", docSnap.id));
+          }
+        }
+      } catch (e) {
+        console.error("Error in deleteOrdersByDate Firestore:", e);
+      }
+    })();
+
+    this.addAuditLog("Orders Deletion", `Deleted all WhatsApp orders for date: ${dateString}`);
+  },
+
+  deleteAuditLogsByDate(dateString: string): void {
+    const logs = this.getAuditLogs();
+    const filtered = logs.filter((l) => l.timestamp.split("T")[0] !== dateString);
+    localStorage.setItem(KEYS.AUDIT_LOGS, JSON.stringify(filtered));
+    window.dispatchEvent(new Event("storage"));
+
+    (async () => {
+      try {
+        const snap = await getDocs(collection(firestore, publicPath, "audit_logs"));
+        for (const docSnap of snap.docs) {
+          const timestamp = docSnap.data().timestamp;
+          if (timestamp && timestamp.split("T")[0] === dateString) {
+            await deleteDoc(doc(firestore, publicPath, "audit_logs", docSnap.id));
+          }
+        }
+      } catch (e) {
+        console.error("Error in deleteAuditLogsByDate Firestore:", e);
+      }
+    })();
+
+    this.addAuditLog("Audit Logs Deletion", `Deleted all audit logs for date: ${dateString}`);
   },
 
   deleteCustomers(phones: string[]): void {

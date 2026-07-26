@@ -7,7 +7,7 @@ import type { Dish } from "../components/DishCard";
 import { getNumericPrice } from "../utils/menuHelpers";
 import { db } from "../utils/db";
 
-const categories = [
+const staticCategories = [
   "All",
   "SOUPS",
   "STARTERS",
@@ -50,6 +50,29 @@ export default function Menu() {
   const [showMenuPromo, setShowMenuPromo] = useState(true);
   const [liveDiscount, setLiveDiscount] = useState(10);
 
+  // Custom Categories States
+  const [customCategories, setCustomCategories] = useState<string[]>([]);
+  
+  const categories = useMemo(() => {
+    const list = ["All", ...staticCategories.filter(c => c !== "All")];
+    
+    const checkAndAdd = (cat: string) => {
+      const upper = cat.trim().toUpperCase();
+      if (!upper) return;
+      const exists = list.some(item => item.toUpperCase() === upper);
+      if (!exists) {
+        list.push(upper);
+      }
+    };
+
+    customCategories.forEach(checkAndAdd);
+    // Also include any other categories present in menuData
+    menuData.forEach((dish) => {
+      checkAndAdd(dish.category);
+    });
+    return list;
+  }, [customCategories, menuData]);
+
   // Cart States
   const [cart, setCart] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
@@ -82,6 +105,11 @@ export default function Menu() {
       setShowWebExclusiveBar(s.showWebExclusiveBar !== false);
     };
     loadData();
+
+    const savedCats = localStorage.getItem("skd_custom_categories");
+    if (savedCats) {
+      setCustomCategories(JSON.parse(savedCats));
+    }
 
     window.addEventListener("skd_settings_updated", loadData);
     window.addEventListener("storage", loadData);
@@ -201,26 +229,51 @@ export default function Menu() {
     const handleScroll = () => {
       if (isScrollingProgrammatically.current) return;
 
-      let active = "All";
-
-      for (const category of categories) {
-        if (category === "All") continue;
-        const id = `category-section-${category.replace(/\s+/g, '-').replace(/'/g, '')}`;
-        const el = document.getElementById(id);
-        if (el) {
-          const rect = el.getBoundingClientRect();
-          // Check if the category section spans across the trigger line (250px from viewport top)
-          if (rect.top <= 250 && rect.bottom > 250) {
-            active = category;
-            break;
+      // If near the top of the page, default to highlighting "All"
+      if (window.scrollY < 120) {
+        if (selectedCategory !== "All") {
+          setSelectedCategory("All");
+          const container = categoryTabContainerRef.current;
+          const activeTabEl = container?.querySelector(`[data-category="All"]`) as HTMLElement;
+          if (container && activeTabEl) {
+            container.scrollTo({
+              left: 0,
+              behavior: "smooth"
+            });
           }
         }
+        return;
+      }
+
+      let active = "All";
+      const triggerY = 250; // trigger point Y below sticky header
+
+      // Find all category elements
+      const sectionElements = categories
+        .filter(c => c !== "All")
+        .map(category => {
+          const id = `category-section-${category.replace(/\s+/g, '-').replace(/'/g, '')}`;
+          const el = document.getElementById(id);
+          return { category, el };
+        })
+        .filter(item => item.el !== null) as { category: string; el: HTMLElement }[];
+
+      // Find the last section whose top is at or above the trigger line
+      let currentActive = null;
+      for (const { category, el } of sectionElements) {
+        const rect = el.getBoundingClientRect();
+        if (rect.top <= triggerY) {
+          currentActive = category;
+        }
+      }
+
+      if (currentActive) {
+        active = currentActive;
       }
 
       if (active !== selectedCategory) {
         setSelectedCategory(active);
         // Center the active tab button inside its scroll container horizontally
-        // (Avoiding scrollIntoView as it can cause vertical page jumping/glitching on mobile browsers)
         const container = categoryTabContainerRef.current;
         const activeTabEl = container?.querySelector(`[data-category="${active}"]`) as HTMLElement;
         if (container && activeTabEl) {
@@ -241,7 +294,7 @@ export default function Menu() {
       window.removeEventListener("scroll", handleScroll);
       if (scrollTimeout.current) clearTimeout(scrollTimeout.current);
     };
-  }, [selectedCategory]);
+  }, [selectedCategory, categories]);
 
   // Deep-link scrolling check on mount
   useEffect(() => {

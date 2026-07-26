@@ -4,13 +4,14 @@ import {
   LayoutDashboard, Menu as MenuIcon, Image as ImageIcon, Star, Mail, Settings as SettingsIcon, 
   LogOut, Check, X, Plus, Edit, Trash2, Calendar, ShieldAlert,
   Lock, ShoppingCart, UserCheck, Eye, EyeOff, Search, FileText,
-  Database, Download, RotateCw, Upload, Camera, QrCode, Printer
+  Database, Download, RotateCw, Upload, Camera, QrCode, Printer,
+  Clock, Users, CheckCircle, Utensils, Folder, MessageSquare
 } from "lucide-react";
 import { db } from "../../../src/utils/db";
 import type { Booking, Review, GalleryItem, ContactInquiry, RestaurantSettings, LoyaltyVoucher, WhatsAppOrder, AuditLog } from "../../../src/utils/db";
 import type { Dish } from "../../../src/components/DishCard";
 
-const categories = [
+const staticCategories = [
   "SOUPS",
   "STARTERS",
   "SPL. STARTERS",
@@ -157,6 +158,14 @@ function QRCameraView({ onScan }: { onScan: (text: string) => void }) {
 
   return (
     <div className="space-y-4">
+      {/* CSS Override to force video element to fill the container and not show green empty bars */}
+      <style dangerouslySetInnerHTML={{ __html: `
+        #qr-camera-viewport video {
+          width: 100% !important;
+          height: 100% !important;
+          object-fit: cover !important;
+        }
+      ` }} />
       {/* Viewfinder Container */}
       <div className="relative w-full aspect-square max-w-sm mx-auto bg-brand-dark rounded-3xl overflow-hidden shadow-2xl border-2 border-brand-gold/30">
         {/* Scanner Stream Container */}
@@ -243,6 +252,11 @@ export default function AdminPortal() {
   const [activeTab, setActiveTab] = useState<AdminTab>("dashboard");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
+  // Custom Categories States
+  const [customCategories, setCustomCategories] = useState<string[]>([]);
+  const [isCategoryAddMode, setIsCategoryAddMode] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState("");
+
   // Database States
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [menu, setMenu] = useState<Dish[]>([]);
@@ -256,13 +270,37 @@ export default function AdminPortal() {
   const [orders, setOrders] = useState<WhatsAppOrder[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
 
+  const allCategories = useMemo(() => {
+    const list = [...staticCategories];
+    
+    const checkAndAdd = (cat: string) => {
+      const upper = cat.trim().toUpperCase();
+      if (!upper) return;
+      const exists = list.some(item => item.toUpperCase() === upper);
+      if (!exists) {
+        list.push(upper);
+      }
+    };
+
+    customCategories.forEach(checkAndAdd);
+    menu.forEach((dish) => {
+      checkAndAdd(dish.category);
+    });
+    return list;
+  }, [customCategories, menu]);
+
   // Filtering
   const [bookingFilterStatus, setBookingFilterStatus] = useState<string>("All");
   const [bookingSearchText, setBookingSearchText] = useState("");
   const [bookingFilterDate, setBookingFilterDate] = useState("");
+  const [daysPast, setDaysPast] = useState(30);
+  const [menuSearchText, setMenuSearchText] = useState("");
+  const [menuFilterStatus, setMenuFilterStatus] = useState<string>("All");
+  const [menuSelectedCategory, setMenuSelectedCategory] = useState<string>("All");
 
   const [orderFilterStatus, setOrderFilterStatus] = useState<string>("All");
   const [orderSearchText, setOrderSearchText] = useState("");
+  const [orderFilterDate, setOrderFilterDate] = useState("");
   const [logSearchText, setLogSearchText] = useState("");
   const [customerSearchText, setCustomerSearchText] = useState("");
   const [selectedCustomers, setSelectedCustomers] = useState<string[]>([]);
@@ -288,6 +326,7 @@ export default function AdminPortal() {
   const [selectedActionFilter, setSelectedActionFilter] = useState<string>("All");
   const datePickerRef = useRef<HTMLInputElement>(null);
   const bookingDatePickerRef = useRef<HTMLInputElement>(null);
+  const orderDatePickerRef = useRef<HTMLInputElement>(null);
 
   // Modals / Selected Items
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
@@ -346,6 +385,14 @@ export default function AdminPortal() {
       const parsed = JSON.parse(savedUser);
       setUser(parsed);
       loadData();
+    }
+    const savedCats = localStorage.getItem("skd_custom_categories");
+    if (savedCats) {
+      setCustomCategories(JSON.parse(savedCats));
+    }
+    const savedDays = localStorage.getItem("skd_reservation_days_past");
+    if (savedDays) {
+      setDaysPast(parseInt(savedDays, 10));
     }
   }, []);
 
@@ -509,15 +556,15 @@ export default function AdminPortal() {
       );
     } else if (editingDish.id) {
       db.updateDish(editingDish.id, {
-        title: editingDish.title,
-        teluguTitle: editingDish.teluguTitle,
-        description: editingDish.description,
-        price: editingDish.price,
-        image: editingDish.image,
-        category: editingDish.category,
-        isPopular: editingDish.isPopular,
-        isChefSpecial: editingDish.isChefSpecial,
-        isSignature: editingDish.isSignature
+        title: editingDish.title ?? "",
+        teluguTitle: editingDish.teluguTitle ?? "",
+        description: editingDish.description ?? "",
+        price: editingDish.price ?? "",
+        image: editingDish.image ?? "",
+        category: editingDish.category ?? "STARTERS",
+        isPopular: editingDish.isPopular ?? false,
+        isChefSpecial: editingDish.isChefSpecial ?? false,
+        isSignature: editingDish.isSignature ?? false
       });
       (db as any).addAuditLog(
         "Menu Dish Updated",
@@ -1157,12 +1204,14 @@ export default function AdminPortal() {
     });
 
     const activeVouchers = vouchers.filter((v) => v.status === "ACTIVE").length;
+    const verifiedVouchers = vouchers.filter((v) => v.status === "REDEEMED").length;
 
     return {
       visits,
       totalBookings: bookings.length,
       todayBookings: bookings.filter((b) => b.date === new Date().toISOString().split("T")[0]).length,
       activeVouchers,
+      verifiedVouchers,
       totalOrders: orders.length,
       totalCustomers,
       returningCustomers,
@@ -1235,9 +1284,37 @@ export default function AdminPortal() {
     return orders.filter((o) => {
       const matchesSearch = o.customerName.toLowerCase().includes(orderSearchText.toLowerCase()) || o.phone.includes(orderSearchText);
       const matchesStatus = orderFilterStatus === "All" || o.status === orderFilterStatus;
-      return matchesSearch && matchesStatus;
+      const matchesDate = !orderFilterDate || o.createdAt.split("T")[0] === orderFilterDate;
+      return matchesSearch && matchesStatus && matchesDate;
     });
-  }, [orders, orderSearchText, orderFilterStatus]);
+  }, [orders, orderSearchText, orderFilterStatus, orderFilterDate]);
+
+  const filteredMenu = useMemo(() => {
+    return menu.filter((dish) => {
+      const matchesSearch =
+        dish.title.toLowerCase().includes(menuSearchText.toLowerCase()) ||
+        dish.teluguTitle.toLowerCase().includes(menuSearchText.toLowerCase()) ||
+        (dish.description && dish.description.toLowerCase().includes(menuSearchText.toLowerCase()));
+
+      let matchesStatus = true;
+      if (menuFilterStatus === "In Stock") {
+        matchesStatus = !dish.outOfStock;
+      } else if (menuFilterStatus === "Out of Stock") {
+        matchesStatus = !!dish.outOfStock;
+      } else if (menuFilterStatus === "Hidden") {
+        matchesStatus = !!dish.hidden;
+      } else if (menuFilterStatus === "Visible") {
+        matchesStatus = !dish.hidden;
+      }
+
+      let matchesCategory = true;
+      if (menuSelectedCategory !== "All") {
+        matchesCategory = dish.category === menuSelectedCategory;
+      }
+
+      return matchesSearch && matchesStatus && matchesCategory;
+    });
+  }, [menu, menuSearchText, menuFilterStatus, menuSelectedCategory]);
 
   const filteredAuditLogs = useMemo(() => {
     return auditLogs.filter((l) => {
@@ -1299,8 +1376,8 @@ export default function AdminPortal() {
   const reservationDatesList = useMemo(() => {
     const list = [];
     const today = new Date();
-    // 23 days in past to 7 days in future (chronological: past on left, future on right)
-    for (let offset = -23; offset <= 7; offset++) {
+    // Reverse chronological order: today (0) down to past (daysPast days)
+    for (let offset = 0; offset >= -daysPast; offset--) {
       const d = new Date();
       d.setDate(today.getDate() + offset);
       
@@ -1332,7 +1409,7 @@ export default function AdminPortal() {
       });
     }
     return list;
-  }, []);
+  }, [daysPast]);
 
   const getMockIp = (logId: string) => {
     const match = logId.match(/\d+$/);
@@ -1553,52 +1630,216 @@ export default function AdminPortal() {
       <main className="flex-1 min-w-0 p-4 sm:p-8 space-y-8 overflow-y-auto h-screen">
         {/* Tab content conditional switches */}
         {activeTab === "dashboard" && (
-          <div className="space-y-8 animate-fade-in">
-            <h1 className="font-display font-black text-2xl text-brand-dark uppercase tracking-wider">Dashboard Overview</h1>
-            
-            {/* KPI Cards Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              {[
-                { title: "Website Visits", count: analytics.visits, detail: "Visits recorded", bg: "bg-white" },
-                { title: "Active Reservations", count: analytics.totalBookings, detail: `${analytics.todayBookings} scheduled today`, bg: "bg-white" },
-                { title: "WhatsApp Orders", count: analytics.totalOrders, detail: "Total order checkouts", bg: "bg-white" },
-                { title: "Active Vouchers", count: analytics.activeVouchers, detail: "Loyalty voucher credits", bg: "bg-white" }
-              ].map((kpi, idx) => (
-                <div key={idx} className="bg-white rounded-3xl p-6 border border-brand-dark/30 shadow-sm space-y-2">
-                  <p className="text-[10px] font-extrabold uppercase tracking-widest text-brand-accent">{kpi.title}</p>
-                  <p className="font-display font-extrabold text-3xl text-brand-dark">{kpi.count}</p>
-                  <p className="text-[11px] text-brand-dark/50 font-medium">{kpi.detail}</p>
-                </div>
-              ))}
+          <div className="space-y-8 animate-fade-in text-brand-dark">
+            {/* Breadcrumbs */}
+            <div className="flex items-center gap-2 text-xs font-semibold text-brand-dark/45 uppercase tracking-wider">
+              <span>Management</span>
+              <span>/</span>
+              <span className="text-brand-dark font-black">Dashboard</span>
             </div>
 
-            {/* Sub Analytics Section */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <div className="bg-white rounded-3xl p-6 border border-brand-dark/30 shadow-sm space-y-4">
-                <h3 className="font-display font-bold text-sm text-brand-dark uppercase tracking-wider">Dining Conversion</h3>
-                <div className="space-y-3">
-                  <div className="flex justify-between text-xs font-semibold">
-                    <span>Website Visit-to-Booking Ratio</span>
-                    <span>{analytics.conversionRate}%</span>
-                  </div>
-                  <div className="w-full bg-brand-bg rounded-full h-2 overflow-hidden">
-                    <div className="bg-brand-accent h-full rounded-full" style={{ width: `${Math.min(Number(analytics.conversionRate) * 2, 100)}%` }} />
-                  </div>
+            {/* Executive Overview Header Card */}
+            <div className="bg-white rounded-3xl border border-brand-dark/30 shadow-sm p-6 flex flex-col md:flex-row md:items-center justify-between gap-6">
+              <div className="space-y-2">
+                <div className="inline-flex items-center gap-2 px-3 py-1 bg-emerald-50 border border-emerald-500/20 text-emerald-600 rounded-full text-[10px] font-black uppercase tracking-wider">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                  <span>Operational Online</span>
                 </div>
+                <h1 className="font-display font-black text-2xl uppercase tracking-wider text-brand-dark leading-none">Executive Overview</h1>
+                <p className="text-xs text-brand-dark/50 font-medium">
+                  Real-time metrics and operational status for Sri Krishna Family Dhaba
+                </p>
+              </div>
+              <button
+                onClick={() => setActiveTab("scanner")}
+                className="px-6 py-3.5 bg-brand-dark hover:bg-brand-accent text-white rounded-xl text-xs font-black tracking-widest uppercase transition-all duration-300 flex items-center gap-2 shrink-0 shadow-sm cursor-pointer"
+              >
+                <span>QR Voucher Verification</span>
+                <span className="font-bold">→</span>
+              </button>
+            </div>
+
+            {/* Metrics Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {/* Today's Bookings */}
+              <button
+                onClick={() => setActiveTab("bookings")}
+                className="bg-white hover:bg-brand-bg/30 text-left rounded-3xl p-6 border border-brand-dark/30 shadow-sm flex items-center gap-4 transition-all group cursor-pointer w-full"
+              >
+                <div className="w-12 h-12 rounded-2xl bg-brand-bg/50 flex items-center justify-center text-brand-accent shrink-0 group-hover:bg-brand-accent group-hover:text-white transition-colors duration-300">
+                  <Clock size={20} className="stroke-[2.5]" />
+                </div>
+                <div className="space-y-0.5">
+                  <p className="text-[10px] font-black text-brand-dark/45 uppercase tracking-wider group-hover:text-brand-accent transition-colors duration-300">Today's Bookings</p>
+                  <p className="font-display font-black text-3xl leading-none">{analytics.todayBookings}</p>
+                </div>
+              </button>
+
+              {/* Total Reservations */}
+              <button
+                onClick={() => setActiveTab("bookings")}
+                className="bg-white hover:bg-brand-bg/30 text-left rounded-3xl p-6 border border-brand-dark/30 shadow-sm flex items-center gap-4 transition-all group cursor-pointer w-full"
+              >
+                <div className="w-12 h-12 rounded-2xl bg-brand-bg/50 flex items-center justify-center text-brand-accent shrink-0 group-hover:bg-brand-accent group-hover:text-white transition-colors duration-300">
+                  <Users size={20} className="stroke-[2.5]" />
+                </div>
+                <div className="space-y-0.5">
+                  <p className="text-[10px] font-black text-brand-dark/45 uppercase tracking-wider group-hover:text-brand-accent transition-colors duration-300">Total Reservations</p>
+                  <p className="font-display font-black text-3xl leading-none">{analytics.totalBookings}</p>
+                </div>
+              </button>
+
+              {/* Verified Vouchers */}
+              <button
+                onClick={() => setActiveTab("scanner")}
+                className="bg-white hover:bg-brand-bg/30 text-left rounded-3xl p-6 border border-brand-dark/30 shadow-sm flex items-center gap-4 transition-all group cursor-pointer w-full"
+              >
+                <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-600 shrink-0 group-hover:bg-emerald-600 group-hover:text-white transition-colors duration-300">
+                  <CheckCircle size={20} className="stroke-[2.5]" />
+                </div>
+                <div className="space-y-0.5">
+                  <p className="text-[10px] font-black text-brand-dark/45 uppercase tracking-wider group-hover:text-emerald-600 transition-colors duration-300">Verified Vouchers</p>
+                  <p className="font-display font-black text-3xl leading-none">{analytics.verifiedVouchers}</p>
+                </div>
+              </button>
+            </div>
+
+            {/* System Modules Header */}
+            <div className="space-y-3">
+              <span className="text-[10px] font-black uppercase tracking-widest text-brand-dark/45 block px-1">SYSTEM MODULES</span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                {/* Menu Dishes */}
+                <button
+                  onClick={() => setActiveTab("menu")}
+                  className="bg-white hover:bg-brand-bg/30 text-left rounded-2xl p-5 border border-brand-dark/30 shadow-xs flex items-center justify-between gap-4 transition-all group cursor-pointer"
+                >
+                  <div className="flex items-center gap-3.5 min-w-0">
+                    <div className="w-10 h-10 rounded-xl bg-brand-bg flex items-center justify-center text-brand-dark/65 shrink-0 group-hover:text-brand-accent transition-colors">
+                      <Utensils size={16} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-black text-brand-dark/45 uppercase tracking-wider">Menu Dishes</p>
+                      <p className="font-display font-black text-sm text-brand-dark mt-0.5">{menu.length} Items</p>
+                    </div>
+                  </div>
+                  <span className="text-brand-dark/30 group-hover:text-brand-accent transition-colors font-bold text-sm shrink-0">→</span>
+                </button>
+
+                {/* Gallery Media */}
+                <button
+                  onClick={() => setActiveTab("gallery")}
+                  className="bg-white hover:bg-brand-bg/30 text-left rounded-2xl p-5 border border-brand-dark/30 shadow-xs flex items-center justify-between gap-4 transition-all group cursor-pointer"
+                >
+                  <div className="flex items-center gap-3.5 min-w-0">
+                    <div className="w-10 h-10 rounded-xl bg-brand-bg flex items-center justify-center text-brand-dark/65 shrink-0 group-hover:text-brand-accent transition-colors">
+                      <Folder size={16} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-black text-brand-dark/45 uppercase tracking-wider">Gallery Media</p>
+                      <p className="font-display font-black text-sm text-brand-dark mt-0.5">{gallery.length} Assets</p>
+                    </div>
+                  </div>
+                  <span className="text-brand-dark/30 group-hover:text-brand-accent transition-colors font-bold text-sm shrink-0">→</span>
+                </button>
+
+                {/* Pending Reviews */}
+                <button
+                  onClick={() => setActiveTab("reviews")}
+                  className="bg-white hover:bg-brand-bg/30 text-left rounded-2xl p-5 border border-brand-dark/30 shadow-xs flex items-center justify-between gap-4 transition-all group cursor-pointer"
+                >
+                  <div className="flex items-center gap-3.5 min-w-0">
+                    <div className="w-10 h-10 rounded-xl bg-brand-bg flex items-center justify-center text-brand-dark/65 shrink-0 group-hover:text-brand-accent transition-colors">
+                      <MessageSquare size={16} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-black text-brand-dark/45 uppercase tracking-wider">Pending Reviews</p>
+                      <p className="font-display font-black text-sm text-brand-dark mt-0.5">{reviews.filter((r) => r.status === "Pending").length} Reviews</p>
+                    </div>
+                  </div>
+                  <span className="text-brand-dark/30 group-hover:text-brand-accent transition-colors font-bold text-sm shrink-0">→</span>
+                </button>
+
+                {/* Inbox Queries */}
+                <button
+                  onClick={() => setActiveTab("contacts")}
+                  className="bg-white hover:bg-brand-bg/30 text-left rounded-2xl p-5 border border-brand-dark/30 shadow-xs flex items-center justify-between gap-4 transition-all group cursor-pointer"
+                >
+                  <div className="flex items-center gap-3.5 min-w-0">
+                    <div className="w-10 h-10 rounded-xl bg-brand-bg flex items-center justify-center text-brand-dark/65 shrink-0 group-hover:text-brand-accent transition-colors">
+                      <Mail size={16} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-black text-brand-dark/45 uppercase tracking-wider">Inbox Queries</p>
+                      <p className="font-display font-black text-sm text-brand-dark mt-0.5">{contacts.length} Messages</p>
+                    </div>
+                  </div>
+                  <span className="text-brand-dark/30 group-hover:text-brand-accent transition-colors font-bold text-sm shrink-0">→</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Recent Booking Requests */}
+            <div className="bg-white rounded-3xl border border-brand-dark/30 shadow-sm overflow-hidden p-6 space-y-4">
+              <div className="flex justify-between items-center pb-2 border-b border-brand-dark/15">
+                <div>
+                  <h3 className="font-display font-black text-sm uppercase tracking-wider text-brand-dark">Recent Booking Requests</h3>
+                  <p className="text-[11px] text-brand-dark/50 mt-0.5 font-medium">Live stream of customer table reservations</p>
+                </div>
+                <button
+                  onClick={() => setActiveTab("bookings")}
+                  className="text-xs font-black text-brand-accent hover:text-brand-dark transition-colors uppercase tracking-widest cursor-pointer flex items-center gap-1"
+                >
+                  <span>View Console</span>
+                  <span>→</span>
+                </button>
               </div>
 
-              <div className="bg-white rounded-3xl p-6 border border-brand-dark/30 shadow-sm space-y-4 col-span-2">
-                <h3 className="font-display font-bold text-sm text-brand-dark uppercase tracking-wider">Busiest dining hours</h3>
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 pt-2">
-                  {analytics.busiestHours.map((h, i) => (
-                    <div key={i} className="bg-brand-bg/40 p-4 rounded-2xl text-center space-y-1">
-                      <p className="text-xs font-bold text-brand-accent">{h.time}</p>
-                      <p className="font-display font-black text-lg text-brand-dark">{h.count}</p>
-                      <p className="text-[9px] text-brand-dark/50 uppercase font-extrabold">Bookings</p>
-                    </div>
-                  ))}
+              {bookings.length === 0 ? (
+                <div className="py-8 text-center text-xs text-brand-dark/45 font-medium">
+                  No recent bookings found.
                 </div>
-              </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="border-b border-brand-dark/10 text-brand-dark/55 uppercase font-bold text-[9px] tracking-wider">
+                        <th className="pb-3 pr-4 font-black">Booking Ref</th>
+                        <th className="pb-3 px-4 font-black">Customer Details</th>
+                        <th className="pb-3 px-4 font-black">Schedule</th>
+                        <th className="pb-3 px-4 font-black">Party Size</th>
+                        <th className="pb-3 pl-4 font-black">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-brand-dark/5">
+                      {bookings.slice(0, 5).map((b) => (
+                        <tr key={b.id} className="text-brand-dark/85">
+                          <td className="py-4 pr-4 font-display font-black text-[13px]">{b.id}</td>
+                          <td className="py-4 px-4">
+                            <div className="font-bold text-brand-dark leading-none">{b.name}</div>
+                            <div className="text-[10px] text-brand-dark/45 mt-1 leading-none">{b.phone}</div>
+                          </td>
+                          <td className="py-4 px-4 font-medium">
+                            <div>{b.date}</div>
+                            <div className="text-[10px] text-brand-accent font-bold mt-1 leading-none">{b.time}</div>
+                          </td>
+                          <td className="py-4 px-4 font-extrabold text-brand-dark/75">{b.guests} {b.guests === 1 ? "Guest" : "Guests"}</td>
+                          <td className="py-4 pl-4">
+                            <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase border leading-none inline-block ${
+                              b.status === "Pending" ? "bg-amber-500/10 border-amber-500/30 text-amber-600" :
+                              b.status === "Approved" ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-600" :
+                              b.status === "Arrived" ? "bg-indigo-500/10 border-indigo-500/30 text-indigo-600" :
+                              b.status === "Completed" ? "bg-blue-500/10 border-blue-500/30 text-blue-600" :
+                              "bg-red-500/10 border-red-500/30 text-red-600"
+                            }`}>
+                              {b.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -1628,11 +1869,46 @@ export default function AdminPortal() {
             <div className="bg-white rounded-3xl border border-brand-dark/30 shadow-sm overflow-hidden p-6 space-y-6">
               {/* Date Filter Section (Matching Audit Trail Date Log) */}
               <div className="space-y-3">
-                <div className="flex items-center justify-between border-b border-brand-dark/15 pb-3">
-                  <div className="flex items-center gap-2 text-brand-dark/60">
-                    <Calendar size={14} className="text-brand-accent" />
-                    <span className="text-[10px] font-bold uppercase tracking-wider">FILTER BY DATE — SCROLL FOR OLDER DATES</span>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-brand-dark/15 pb-3">
+                  <div className="flex flex-wrap items-center gap-4 text-brand-dark/60">
+                    <div className="flex items-center gap-2">
+                      <Calendar size={14} className="text-brand-accent" />
+                      <span className="text-[10px] font-bold uppercase tracking-wider">FILTER BY DATE — SCROLL FOR OLDER DATES</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 border-l border-brand-dark/20 pl-4">
+                      <span className="text-[9px] font-black uppercase tracking-wider text-brand-dark/45">Days Past:</span>
+                      <input
+                        type="number"
+                        min="1"
+                        max="180"
+                        value={daysPast}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value, 10);
+                          if (!isNaN(val) && val >= 1) {
+                            setDaysPast(val);
+                            localStorage.setItem("skd_reservation_days_past", String(val));
+                          }
+                        }}
+                        className="w-12 bg-brand-bg border border-brand-dark/25 rounded-lg py-1 px-1.5 text-center text-[10px] font-black focus:outline-none focus:border-brand-dark/60"
+                      />
+                    </div>
                   </div>
+                  {bookingFilterDate && (
+                    <button
+                      onClick={() => {
+                        const confirmText = `Are you sure you want to delete ALL bookings/reservations for the date: ${bookingFilterDate}?\n\nThis will permanently delete them from both local storage and the database. This action CANNOT be undone.`;
+                        if (window.confirm(confirmText)) {
+                          db.deleteBookingsByDate(bookingFilterDate);
+                          setBookingFilterDate("");
+                          loadData();
+                        }
+                      }}
+                      className="text-red-600 hover:text-red-800 text-[10px] font-bold uppercase tracking-wider transition-colors cursor-pointer flex items-center gap-0.5 pr-2"
+                    >
+                      <span className="text-sm leading-none">×</span>
+                      <span>CLEAR</span>
+                    </button>
+                  )}
                   <div className="relative">
                     <button
                       onClick={() => bookingDatePickerRef.current?.showPicker()}
@@ -1851,6 +2127,115 @@ export default function AdminPortal() {
             <h1 className="font-display font-black text-2xl text-brand-dark uppercase tracking-wider">WhatsApp Delivery Orders</h1>
 
             <div className="bg-white rounded-3xl border border-brand-dark/30 shadow-sm overflow-hidden p-6 space-y-6">
+              {/* Date Filter Section (Matching Reservation Date Log) */}
+              <div className="space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-brand-dark/15 pb-3">
+                  <div className="flex flex-wrap items-center gap-4 text-brand-dark/60">
+                    <div className="flex items-center gap-2">
+                      <Calendar size={14} className="text-brand-accent" />
+                      <span className="text-[10px] font-bold uppercase tracking-wider">FILTER BY DATE — SCROLL FOR OLDER ORDERS</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 border-l border-brand-dark/20 pl-4">
+                      <span className="text-[9px] font-black uppercase tracking-wider text-brand-dark/45">Days Past:</span>
+                      <input
+                        type="number"
+                        min="1"
+                        max="180"
+                        value={daysPast}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value, 10);
+                          if (!isNaN(val) && val >= 1) {
+                            setDaysPast(val);
+                            localStorage.setItem("skd_reservation_days_past", String(val));
+                          }
+                        }}
+                        className="w-12 bg-brand-bg border border-brand-dark/25 rounded-lg py-1 px-1.5 text-center text-[10px] font-black focus:outline-none focus:border-brand-dark/60"
+                      />
+                    </div>
+                  </div>
+                  {orderFilterDate && (
+                    <button
+                      onClick={() => {
+                        const confirmText = `Are you sure you want to delete ALL WhatsApp orders for the date: ${orderFilterDate}?\n\nThis will permanently delete them from both local storage and the database. This action CANNOT be undone.`;
+                        if (window.confirm(confirmText)) {
+                          (db as any).deleteOrdersByDate(orderFilterDate);
+                          setOrderFilterDate("");
+                          loadData();
+                        }
+                      }}
+                      className="text-red-600 hover:text-red-800 text-[10px] font-bold uppercase tracking-wider transition-colors cursor-pointer flex items-center gap-0.5 pr-2"
+                    >
+                      <span className="text-sm leading-none">×</span>
+                      <span>CLEAR</span>
+                    </button>
+                  )}
+                  <div className="relative">
+                    <button
+                      onClick={() => orderDatePickerRef.current?.showPicker()}
+                      className="flex items-center gap-1.5 px-3 py-1.5 border border-brand-dark/35 hover:border-brand-accent rounded-xl text-[10px] font-bold uppercase tracking-wider transition-colors cursor-pointer bg-white"
+                    >
+                      <Calendar size={12} className="text-brand-dark" />
+                      <span>PICK DATE</span>
+                    </button>
+                    <input
+                      ref={orderDatePickerRef}
+                      type="date"
+                      className="absolute invisible pointer-events-none"
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          setOrderFilterDate(e.target.value);
+                        }
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Horizontal Scrollable Date list */}
+                <div className="flex gap-2.5 overflow-x-auto py-2 scrollbar-thin scrollbar-thumb-brand-dark/20 scrollbar-track-transparent">
+                  {/* VIEW All Card */}
+                  <button
+                    onClick={() => setOrderFilterDate("")}
+                    className={`flex flex-col items-center justify-center shrink-0 w-16 h-20 rounded-2xl border transition-all cursor-pointer ${
+                      orderFilterDate === ""
+                        ? "bg-brand-dark border-brand-dark text-white shadow-md font-bold"
+                        : "bg-white border-brand-dark/20 hover:border-brand-dark/40 text-brand-dark"
+                    }`}
+                  >
+                    <span className="text-[9px] font-black uppercase tracking-wider">VIEW</span>
+                    <span className="text-lg font-black mt-1">All</span>
+                  </button>
+
+                  {/* Dynamically generated date list */}
+                  {reservationDatesList.map((dItem) => {
+                    const isSelected = orderFilterDate === dItem.dateString;
+                    return (
+                      <button
+                        key={dItem.dateString}
+                        onClick={() => setOrderFilterDate(dItem.dateString)}
+                        className={`flex flex-col items-center justify-center shrink-0 w-16 h-20 rounded-2xl border transition-all cursor-pointer ${
+                          isSelected
+                            ? "bg-brand-dark border-brand-dark text-white shadow-md"
+                            : "bg-white border-brand-dark/20 hover:border-brand-dark/40 text-brand-dark"
+                        }`}
+                      >
+                        <span className={`text-[8px] font-black uppercase tracking-wider ${
+                          isSelected ? "text-brand-gold" : dItem.isToday ? "text-amber-600" : "text-brand-dark/45"
+                        }`}>
+                          {dItem.label}
+                        </span>
+                        <span className="text-lg font-black leading-none mt-1">{dItem.day}</span>
+                        <span className="text-[9px] font-bold text-brand-dark/50 mt-1 uppercase leading-none">{dItem.month}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Counter */}
+                <div className="text-[10px] text-brand-dark/50 font-bold uppercase px-1 pb-3 border-b border-brand-dark/10">
+                  Showing <span className="text-brand-dark font-extrabold">{filteredOrders.length}</span> of <span className="text-brand-dark font-extrabold">{orders.length}</span> total orders {orderFilterDate ? `for ${orderFilterDate}` : "(all dates)"}
+                </div>
+              </div>
+
               <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div className="flex flex-wrap gap-2">
                   {["All", "Pending", "Accepted", "Out For Delivery", "Delivered", "Cancelled"].map((st) => (
@@ -2197,26 +2582,35 @@ export default function AdminPortal() {
           <div className="space-y-8 animate-fade-in">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
               <h1 className="font-display font-black text-2xl text-brand-dark uppercase tracking-wider">Restaurant Menu catalog</h1>
-              <button
-                onClick={() => {
-                  setEditingDish({
-                    title: "",
-                    teluguTitle: "",
-                    description: "",
-                    price: "Rs. 250",
-                    image: "",
-                    category: "STARTERS",
-                    isChefSpecial: false,
-                    isPopular: false,
-                    isSignature: false
-                  });
-                  setIsDishAddMode(true);
-                }}
-                className="py-3 px-6 bg-brand-gold text-brand-dark hover:bg-brand-accent hover:text-white rounded-xl text-xs font-black tracking-widest uppercase transition-all duration-300 flex items-center gap-2 cursor-pointer shadow-sm"
-              >
-                <Plus size={14} />
-                <span>Add New Item</span>
-              </button>
+              <div className="flex flex-wrap gap-3">
+                <button
+                  onClick={() => setIsCategoryAddMode(true)}
+                  className="py-3 px-6 bg-white text-brand-dark border border-brand-dark/30 hover:bg-brand-dark hover:text-white rounded-xl text-xs font-black tracking-widest uppercase transition-all duration-300 flex items-center gap-2 cursor-pointer shadow-sm animate-fade-in"
+                >
+                  <Plus size={14} />
+                  <span>Add Category</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setEditingDish({
+                      title: "",
+                      teluguTitle: "",
+                      description: "",
+                      price: "Rs. 250",
+                      image: "",
+                      category: "STARTERS",
+                      isChefSpecial: false,
+                      isPopular: false,
+                      isSignature: false
+                    });
+                    setIsDishAddMode(true);
+                  }}
+                  className="py-3 px-6 bg-brand-gold text-brand-dark hover:bg-brand-accent hover:text-white rounded-xl text-xs font-black tracking-widest uppercase transition-all duration-300 flex items-center gap-2 cursor-pointer shadow-sm"
+                >
+                  <Plus size={14} />
+                  <span>Add New Item</span>
+                </button>
+              </div>
             </div>
 
             {/* Signature Showcase Section */}
@@ -2312,11 +2706,80 @@ export default function AdminPortal() {
               )}
             </div>
 
+            {/* Search, Filter Status, and Category Bar */}
+            <div className="bg-white rounded-3xl border border-brand-dark/30 shadow-sm p-6 space-y-6">
+              <div className="flex flex-col md:flex-row gap-4 items-stretch md:items-center justify-between">
+                {/* Search Input */}
+                <div className="relative flex-grow max-w-md">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-brand-dark/40"><Search size={14} /></span>
+                  <input
+                    type="text"
+                    placeholder="Search menu items by name, translation, description..."
+                    value={menuSearchText}
+                    onChange={(e) => setMenuSearchText(e.target.value)}
+                    className="w-full bg-brand-bg/50 border border-brand-dark/35 rounded-xl pl-10 pr-4 py-2 text-xs focus:outline-none focus:border-brand-dark"
+                  />
+                </div>
+
+                {/* Status Filters */}
+                <div className="flex flex-wrap gap-2 shrink-0">
+                  {["All", "In Stock", "Out of Stock", "Visible", "Hidden"].map((st) => (
+                    <button
+                      key={st}
+                      type="button"
+                      onClick={() => setMenuFilterStatus(st)}
+                      className={`px-3 py-1.5 rounded-xl text-[10px] font-black tracking-wider uppercase border transition-all cursor-pointer ${
+                        menuFilterStatus === st
+                          ? "bg-brand-accent text-white border-brand-accent shadow-sm"
+                          : "bg-white text-brand-dark border-brand-dark/35 hover:border-brand-accent"
+                      }`}
+                    >
+                      {st}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Category Selectable Bar */}
+              <div className="space-y-2 border-t border-brand-dark/10 pt-4">
+                <span className="text-[9px] font-black uppercase tracking-wider text-brand-dark/45">FILTER BY CATEGORY</span>
+                <div className="flex gap-2.5 overflow-x-auto py-2 scrollbar-thin scrollbar-thumb-brand-dark/20 scrollbar-track-transparent">
+                  <button
+                    type="button"
+                    onClick={() => setMenuSelectedCategory("All")}
+                    className={`flex items-center justify-center shrink-0 px-4 py-2 rounded-xl border text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                      menuSelectedCategory === "All"
+                        ? "bg-brand-dark border-brand-dark text-white shadow-md"
+                        : "bg-white border-brand-dark/20 hover:border-brand-dark/45 text-brand-dark"
+                    }`}
+                  >
+                    ALL CATEGORIES
+                  </button>
+                  {allCategories.map((cat) => (
+                    <button
+                      key={cat}
+                      type="button"
+                      onClick={() => setMenuSelectedCategory(cat)}
+                      className={`flex items-center justify-center shrink-0 px-4 py-2 rounded-xl border text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                        menuSelectedCategory === cat
+                          ? "bg-brand-dark border-brand-dark text-white shadow-md"
+                          : "bg-white border-brand-dark/20 hover:border-brand-dark/45 text-brand-dark"
+                      }`}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
             {/* Menu List divided by categories */}
             <div className="space-y-6">
-              {categories.map((category) => {
-                const categoryDishes = menu.filter((dish) => dish.category === category);
-                if (categoryDishes.length === 0) return null;
+              {allCategories
+                .filter((category) => menuSelectedCategory === "All" || category === menuSelectedCategory)
+                .map((category) => {
+                  const categoryDishes = filteredMenu.filter((dish) => dish.category === category);
+                  if (categoryDishes.length === 0) return null;
 
                 return (
                   <div key={category} className="bg-white rounded-3xl border border-brand-dark/30 shadow-sm overflow-hidden p-6 space-y-4 animate-fade-in">
@@ -2327,6 +2790,17 @@ export default function AdminPortal() {
                       {categoryDishes.map((dish) => (
                         <div key={dish.id} className="flex flex-col md:flex-row gap-6 items-stretch md:items-center justify-between py-4 first:pt-0 last:pb-0">
                           <div className="flex gap-4 items-center">
+                            {dish.image ? (
+                              <img
+                                src={dish.image}
+                                alt={dish.title}
+                                className="w-16 h-16 rounded-2xl object-cover border border-brand-dark/30 shrink-0"
+                              />
+                            ) : (
+                              <div className="w-16 h-16 rounded-2xl bg-brand-bg/50 border border-brand-dark/25 flex items-center justify-center shrink-0">
+                                <ImageIcon size={20} className="text-brand-dark/30" />
+                              </div>
+                            )}
                             <div>
                               <div className="flex items-center gap-2">
                                 <h4 className="font-display font-black text-sm text-brand-dark leading-none">{dish.title}</h4>
@@ -2405,7 +2879,8 @@ export default function AdminPortal() {
 
               {/* Uncategorized dishes */}
               {(() => {
-                const uncategorizedDishes = menu.filter((dish) => !categories.includes(dish.category));
+                if (menuSelectedCategory !== "All") return null;
+                const uncategorizedDishes = filteredMenu.filter((dish) => !allCategories.includes(dish.category));
                 if (uncategorizedDishes.length === 0) return null;
 
                 return (
@@ -2417,6 +2892,17 @@ export default function AdminPortal() {
                       {uncategorizedDishes.map((dish) => (
                         <div key={dish.id} className="flex flex-col md:flex-row gap-6 items-stretch md:items-center justify-between py-4 first:pt-0 last:pb-0">
                           <div className="flex gap-4 items-center">
+                            {dish.image ? (
+                              <img
+                                src={dish.image}
+                                alt={dish.title}
+                                className="w-16 h-16 rounded-2xl object-cover border border-brand-dark/30 shrink-0"
+                              />
+                            ) : (
+                              <div className="w-16 h-16 rounded-2xl bg-brand-bg/50 border border-brand-dark/25 flex items-center justify-center shrink-0">
+                                <ImageIcon size={20} className="text-brand-dark/30" />
+                              </div>
+                            )}
                             <div>
                               <div className="flex items-center gap-2">
                                 <h4 className="font-display font-black text-sm text-brand-dark leading-none">{dish.title}</h4>
@@ -3101,6 +3587,22 @@ export default function AdminPortal() {
                     <Calendar size={14} className="text-brand-accent" />
                     <span className="text-[10px] font-bold uppercase tracking-wider">FILTER BY DATE — SCROLL FOR OLDER DATES</span>
                   </div>
+                  {selectedAuditDate && (
+                    <button
+                      onClick={() => {
+                        const confirmText = `Are you sure you want to delete ALL audit logs for the date: ${selectedAuditDate}?\n\nThis will permanently delete them from both local storage and the database. This action CANNOT be undone.`;
+                        if (window.confirm(confirmText)) {
+                          (db as any).deleteAuditLogsByDate(selectedAuditDate);
+                          setSelectedAuditDate(null);
+                          loadData();
+                        }
+                      }}
+                      className="text-red-600 hover:text-red-800 text-[10px] font-bold uppercase tracking-wider transition-colors cursor-pointer flex items-center gap-0.5 pr-2"
+                    >
+                      <span className="text-sm leading-none">×</span>
+                      <span>CLEAR</span>
+                    </button>
+                  )}
                   <div className="relative">
                     <button
                       onClick={() => datePickerRef.current?.showPicker()}
@@ -3484,8 +3986,8 @@ export default function AdminPortal() {
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-bold text-brand-dark uppercase tracking-wider block">Photo URL</label>
                   <input
-                    type="url"
-                    placeholder="https://images.unsplash.com/photo-..."
+                    type="text"
+                    placeholder="e.g. /images/item.jpg or https://..."
                     value={editingDish.image || ""}
                     onChange={(e) => setEditingDish({ ...editingDish, image: e.target.value })}
                     className="w-full bg-brand-bg border border-brand-dark/35 rounded-xl py-2 px-3 focus:outline-none focus:border-brand-dark/70"
@@ -3498,7 +4000,7 @@ export default function AdminPortal() {
                     onChange={(e) => setEditingDish({ ...editingDish, category: e.target.value })}
                     className="w-full bg-brand-bg border border-brand-dark/35 rounded-xl py-2 px-3 focus:outline-none focus:border-brand-dark/70"
                   >
-                    {categories.map((cat) => (
+                    {allCategories.map((cat) => (
                       <option key={cat} value={cat}>{cat}</option>
                     ))}
                   </select>
@@ -3807,6 +4309,74 @@ export default function AdminPortal() {
                   DOWNLOAD
                 </button>
               </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Category Add Modal */}
+      {isCategoryAddMode && (
+        <div className="fixed inset-0 bg-brand-dark/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 border border-brand-dark/30 w-full max-w-sm space-y-4 shadow-2xl">
+            <div className="flex justify-between items-center">
+              <h3 className="font-display font-black text-sm text-brand-dark uppercase tracking-wider">
+                Add New Category
+              </h3>
+              <button
+                onClick={() => {
+                  setIsCategoryAddMode(false);
+                  setNewCategoryName("");
+                }}
+                className="p-1 hover:bg-brand-bg rounded-lg cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const cleaned = newCategoryName.trim().toUpperCase();
+                if (!cleaned) return;
+                if (allCategories.includes(cleaned)) {
+                  alert("Category already exists!");
+                  return;
+                }
+                const updated = [...customCategories, cleaned];
+                setCustomCategories(updated);
+                localStorage.setItem("skd_custom_categories", JSON.stringify(updated));
+                
+                // Add audit log
+                (db as any).addAuditLog(
+                  "Menu Category Added",
+                  `Created new menu category "${cleaned}"`
+                );
+                
+                setIsCategoryAddMode(false);
+                setNewCategoryName("");
+              }}
+              className="space-y-4 text-xs"
+            >
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-brand-dark uppercase tracking-wider block">
+                  Category Name
+                </label>
+                <input
+                  type="text"
+                  value={newCategoryName}
+                  onChange={(e) => setNewCategoryName(e.target.value)}
+                  className="w-full bg-brand-bg border border-brand-dark/35 rounded-xl py-2 px-3 focus:outline-none focus:border-brand-dark/70 font-semibold"
+                  placeholder="e.g. DESSERTS"
+                  required
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="w-full py-3.5 bg-brand-accent hover:bg-brand-dark text-white rounded-xl text-xs font-black tracking-widest uppercase transition-colors cursor-pointer"
+              >
+                Add Category
+              </button>
             </form>
           </div>
         </div>

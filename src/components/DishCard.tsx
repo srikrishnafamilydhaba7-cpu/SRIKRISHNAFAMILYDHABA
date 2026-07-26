@@ -3,6 +3,7 @@ import { Star, X, Heart, ShieldAlert, Sparkles, ShoppingBag } from "lucide-react
 import { motion, AnimatePresence } from "framer-motion";
 import { formatPrice } from "../utils/menuHelpers";
 import WhatsAppIcon from "./WhatsAppIcon";
+import { db } from "../utils/db";
 
 export interface Dish {
   id: string;
@@ -35,6 +36,8 @@ export default function DishCard({ dish, onClickOverride, showImage = true }: Di
   const ordered = false;
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
   const finalShowImage = showImage;
+  const settings = db.getSettings();
+  const whatsappNum = settings?.whatsappNumber ? settings.whatsappNumber.replace(/[^0-9]/g, "") : "919032292421";
 
   const handleOrder = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -426,7 +429,7 @@ export default function DishCard({ dish, onClickOverride, showImage = true }: Di
 
                 {/* WhatsApp */}
                 <a
-                  href={`https://wa.me/919032292421?text=${encodeURIComponent(`Hello Sri Krishna Family Dhaba, I would like to order "${dish.title}" from the menu.`)}`}
+                  href={`https://wa.me/${whatsappNum}?text=${encodeURIComponent(`Hello Sri Krishna Family Dhaba, I would like to order "${dish.title}" from the menu.`)}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="bg-[#25d366] text-white rounded-2xl p-4 flex items-center justify-between hover:scale-[1.01] active:scale-[0.99] transition-all duration-300 shadow-md"

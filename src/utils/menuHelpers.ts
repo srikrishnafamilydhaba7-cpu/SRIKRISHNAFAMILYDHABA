@@ -1,13 +1,21 @@
 export function formatPrice(price: number | string): string {
   if (typeof price === "number") return `₹${price}`;
+  
   if (price.includes("/")) {
-    return price.split("/").map(p => `₹${p.trim()}`).join(" / ");
+    return price.split("/").map(p => {
+      const cleaned = p.replace(/[^0-9.]/g, "").trim();
+      return `₹${cleaned}`;
+    }).join(" / ");
   }
-  return `₹${price}`;
+  
+  const cleaned = price.replace(/[^0-9.]/g, "").trim();
+  return `₹${cleaned}`;
 }
 
 export function getNumericPrice(price: number | string): number {
   if (typeof price === "number") return price;
-  const parsed = parseFloat(price.split("/")[0].trim());
+  const firstPart = price.split("/")[0].trim();
+  const cleaned = firstPart.replace(/[^0-9.]/g, "");
+  const parsed = parseFloat(cleaned);
   return isNaN(parsed) ? 0 : parsed;
 }

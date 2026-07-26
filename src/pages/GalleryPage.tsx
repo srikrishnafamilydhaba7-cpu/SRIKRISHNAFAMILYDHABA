@@ -3,7 +3,7 @@ import { X, ZoomIn, ZoomOut, ArrowLeft, ArrowRight } from "lucide-react";
 import { db } from "../utils/db";
 import type { GalleryItem } from "../utils/db";
 
-const categories = ["All", "Dishes", "Tandoor", "Ambience"];
+const categories = ["All", "Dishes", "Tandoor", "Sweets", "Ambience"];
 
 export default function GalleryPage() {
   const [selectedCategory, setSelectedCategory] = useState("All");
@@ -150,7 +150,7 @@ export default function GalleryPage() {
               </button>
 
               {/* Main image container */}
-              <div className="w-full flex justify-center items-center overflow-hidden aspect-video rounded-3xl bg-brand-dark/40 shadow-2xl border border-white/10">
+              <div className="w-full flex justify-center items-center overflow-hidden rounded-3xl bg-brand-dark/40 shadow-2xl border border-white/10 p-2">
                 <img
                   key={currentImage.id}
                   src={currentImage.url}

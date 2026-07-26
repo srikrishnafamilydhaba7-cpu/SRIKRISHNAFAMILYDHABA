@@ -4,13 +4,13 @@ import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyCpeiQV_CuObk10y1fEmBLqVMduImYwXqM",
-  authDomain: "sri-krishna-dhaba.firebaseapp.com",
-  projectId: "sri-krishna-dhaba",
-  storageBucket: "sri-krishna-dhaba.firebasestorage.app",
-  messagingSenderId: "137293256337",
-  appId: "1:137293256337:web:b5c0d85dc55efdec3e9130",
-  measurementId: "G-1R36T1LPX2"
+  apiKey: "AIzaSyBriF9jeIhAS7bOjP4h4kfcNuVee6Yc6kQ",
+  authDomain: "sri-krishna-dhaba-e1010.firebaseapp.com",
+  projectId: "sri-krishna-dhaba-e1010",
+  storageBucket: "sri-krishna-dhaba-e1010.firebasestorage.app",
+  messagingSenderId: "369854906329",
+  appId: "1:369854906329:web:31e4c89d5b3b8a576be3c8",
+  measurementId: "G-Y10BQ3F07L"
 };
 
 // Initialize Firebase
