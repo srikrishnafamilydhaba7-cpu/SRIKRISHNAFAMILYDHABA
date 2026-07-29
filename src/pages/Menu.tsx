@@ -999,13 +999,13 @@ export default function Menu() {
 
         {/* Promo Banner - Exclusive Table Reservation */}
         {showMenuPromo && (
-          <div className="mb-10 max-w-5xl mx-auto border-2 border-dashed border-brand-gold/30 bg-white/40 p-5 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-4">
-            <div>
-              <span className="text-[10px] font-black bg-brand-accent/10 border border-brand-accent/20 px-2 py-0.5 rounded text-brand-accent uppercase tracking-wider">
+          <div className="mb-10 max-w-5xl mx-auto border-2 border-dashed border-brand-gold/30 bg-white/40 p-6 rounded-2xl flex flex-col items-center text-center justify-center gap-4">
+            <div className="flex flex-col items-center">
+              <span className="text-[10px] font-black bg-brand-accent/10 border border-brand-accent/20 px-2.5 py-0.5 rounded text-brand-accent uppercase tracking-wider block w-fit">
                 Special Discount
               </span>
-              <p className="text-sm font-display font-bold text-brand-dark mt-1.5">
-                🎁 Reserve your table through our website and receive <strong className="text-brand-accent">{liveDiscount}% OFF</strong> on your final dining bill.
+              <p className="text-sm font-display font-bold text-brand-dark mt-2.5">
+                🎉 Reserve your table through our website and receive <strong className="text-brand-accent">{liveDiscount}% OFF</strong> on your final dining bill.
               </p>
             </div>
             <button
@@ -1015,7 +1015,7 @@ export default function Menu() {
                   el.scrollIntoView({ behavior: "smooth" });
                 }
               }}
-              className="shrink-0 bg-brand-accent hover:bg-brand-dark text-white px-5 py-2.5 rounded-full text-xs font-bold tracking-wider uppercase transition-colors"
+              className="shrink-0 bg-brand-accent hover:bg-brand-dark text-white px-6 py-2.5 rounded-full text-xs font-bold tracking-wider uppercase transition-colors"
             >
               Order Now
             </button>

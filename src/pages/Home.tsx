@@ -50,11 +50,28 @@ const branches: Branch[] = [
 
 const resolveVideoUrl = (url: string | undefined): string => {
   if (!url) return "";
-  if (url.startsWith("http://") || url.startsWith("https://")) {
-    return url;
+  const trimmed = url.trim();
+  let resolved = trimmed;
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    resolved = trimmed;
+  } else if (trimmed.startsWith("//")) {
+    resolved = `https:${trimmed}`;
+  } else if (trimmed.startsWith("res.cloudinary.com")) {
+    resolved = `https://${trimmed}`;
+  } else if (trimmed.includes("cloudinary.com")) {
+    const cleanPath = trimmed.substring(trimmed.indexOf("cloudinary.com"));
+    resolved = `https://${cleanPath}`;
+  } else {
+    resolved = `https://res.cloudinary.com/or5e9kak/video/upload/v1783783688/${trimmed}`;
   }
-  // If it's a relative video filename, resolve it to the default Cloudinary directory
-  return `https://res.cloudinary.com/or5e9kak/video/upload/v1783783688/${url}`;
+
+  // Self-heal the cut-off URL if the user saved an incomplete link in their database
+  if (resolved.includes("WhatsApp_Video_2026-07-11_at_20.57") && !resolved.endsWith("c4tq0e.mp4")) {
+    resolved = "https://res.cloudinary.com/or5e9kak/video/upload/v1783783688/WhatsApp_Video_2026-07-11_at_20.57.19_c4tq0e.mp4";
+  }
+
+  console.log("SKD DEBUG: Hero Video Input =", url, "-> Resolved =", resolved);
+  return resolved;
 };
 
 export interface HomeProps {
@@ -69,6 +86,10 @@ export default function Home({ previewData }: HomeProps) {
   const [testimonials, setTestimonials] = useState<Review[]>([]);
   const [settings, setSettings] = useState<any>(null);
   const [videoError, setVideoError] = useState(false);
+
+  useEffect(() => {
+    setVideoError(false);
+  }, [settings?.heroVideo, settings?.heroVideoMobile]);
 
   useEffect(() => {
     if (previewData) {
@@ -173,75 +194,21 @@ export default function Home({ previewData }: HomeProps) {
             </p>
           </div>
         ) : (
-          <>
-            {/* Mobile Video: Only render and show if heroVideoMobile is provided */}
-            {settings?.heroVideoMobile ? (
-              <video
-                key={resolveVideoUrl(settings.heroVideoMobile)}
-                autoPlay
-                loop
-                muted
-                playsInline
-                onError={() => setVideoError(true)}
-                className="w-full h-full object-cover block md:hidden relative z-10"
-              >
-                <source src={resolveVideoUrl(settings.heroVideoMobile)} type="video/mp4" />
-                Your browser does not support the video tag.
-              </video>
-            ) : (
-              <>
-                {/* Blurred background video for filling portrait screens on mobile (Fallback when no mobile-specific video is set) */}
-                <video
-                  key={settings?.heroVideo ? `bg-${resolveVideoUrl(settings.heroVideo)}` : "default-bg"}
-                  autoPlay
-                  loop
-                  muted
-                  playsInline
-                  onError={() => setVideoError(true)}
-                  className="absolute inset-0 w-full h-full object-cover blur-3xl opacity-35 scale-105 pointer-events-none md:hidden"
-                >
-                  <source 
-                    src={resolveVideoUrl(settings?.heroVideo) || "https://res.cloudinary.com/or5e9kak/video/upload/v1783771254/WhatsApp_Video_2026-07-11_at_10.04.14_dnyzq3.mp4"} 
-                    type="video/mp4" 
-                  />
-                </video>
-         
-                {/* Main foreground video on mobile (Fallback when no mobile-specific video is set) */}
-                <video
-                  key={settings?.heroVideo ? `fg-${resolveVideoUrl(settings.heroVideo)}` : "default-fg"}
-                  autoPlay
-                  loop
-                  muted
-                  playsInline
-                  onError={() => setVideoError(true)}
-                  className="w-full h-full object-contain relative z-10 md:hidden"
-                >
-                  <source 
-                    src={resolveVideoUrl(settings?.heroVideo) || "https://res.cloudinary.com/or5e9kak/video/upload/v1783771254/WhatsApp_Video_2026-07-11_at_10.04.14_dnyzq3.mp4"} 
-                    type="video/mp4" 
-                  />
-                  Your browser does not support the video tag.
-                </video>
-              </>
-            )}
-
-            {/* Desktop foreground video (always hidden on mobile, shown on desktop) */}
-            <video
-              key={settings?.heroVideo ? `desktop-${resolveVideoUrl(settings.heroVideo)}` : "default-desktop"}
-              autoPlay
-              loop
-              muted
-              playsInline
-              onError={() => setVideoError(true)}
-              className="w-full h-full object-cover hidden md:block relative z-10"
-            >
-              <source 
-                src={resolveVideoUrl(settings?.heroVideo) || "https://res.cloudinary.com/or5e9kak/video/upload/v1783771254/WhatsApp_Video_2026-07-11_at_10.04.14_dnyzq3.mp4"} 
-                type="video/mp4" 
-              />
-              Your browser does not support the video tag.
-            </video>
-          </>
+          <video
+            key={settings?.heroVideo ? `hero-${resolveVideoUrl(settings.heroVideo)}` : "default-hero"}
+            autoPlay
+            loop
+            muted
+            playsInline
+            onError={() => setVideoError(true)}
+            className="w-full h-full object-cover relative z-10"
+          >
+            <source 
+              src={resolveVideoUrl(settings?.heroVideo) || "https://res.cloudinary.com/or5e9kak/video/upload/v1783783688/WhatsApp_Video_2026-07-11_at_20.57.19_c4tq0e.mp4"} 
+              type="video/mp4" 
+            />
+            Your browser does not support the video tag.
+          </video>
         )}
 
         {/* Scroll Down Indicator for Mobile */}

@@ -674,7 +674,7 @@ export default function AdminPortal() {
     const s = settingsDraft || settings;
     if (s) {
       setCmsHeroVideo(s.heroVideo || "https://res.cloudinary.com/or5e9kak/video/upload/v1783783688/WhatsApp_Video_2026-07-11_at_20.57.19_c4tq0e.mp4");
-      setCmsHeroVideoMobile(s.heroVideoMobile || "");
+      setCmsHeroVideoMobile("");
       setCmsTimings(s.timings);
       setCmsPhone(s.contactPhone);
       setCmsEmail(s.contactEmail);
@@ -2637,7 +2637,7 @@ function formatPhone(phoneStr: string): string {
               <div className="absolute bottom-3 left-1/2 -translate-x-1/2 w-36 h-1 bg-zinc-400 rounded-full z-30" />
             </div>
           ) : (
-            <div className="w-full h-full bg-[#FAF9F6] rounded-2xl shadow-2xl border border-brand-dark/20 flex flex-col overflow-hidden max-w-5xl aspect-video shrink-0">
+            <div className="w-[95%] max-w-7xl bg-[#FAF9F6] rounded-2xl shadow-2xl border border-brand-dark/20 flex flex-col overflow-hidden aspect-video shrink-0">
               {/* Browser header */}
               <div className="bg-[#FAF9F6] border-b border-brand-dark/15 px-4 py-3 flex items-center gap-4 shrink-0 select-none">
                 {/* Traffic light control dots */}
@@ -4737,7 +4737,7 @@ function formatPhone(phoneStr: string): string {
               
               <form onSubmit={handleSaveCMSDraft} className="space-y-5">
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-brand-dark uppercase tracking-wider block">Hero Video URL (Desktop/Laptop View)</label>
+                  <label className="text-[10px] font-bold text-brand-dark uppercase tracking-wider block">Hero Video URL</label>
                   <input
                     type="url"
                     value={cmsHeroVideo}
@@ -4745,19 +4745,7 @@ function formatPhone(phoneStr: string): string {
                     className="w-full bg-brand-bg/30 border border-brand-dark/35 rounded-xl py-2.5 px-4 text-xs focus:outline-none focus:border-brand-dark/70"
                     required
                   />
-                  <span className="text-[10px] text-brand-dark/45 italic">Direct video file links (.mp4) only. Used for the desktop hero background.</span>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-brand-dark uppercase tracking-wider block">Hero Video URL (Mobile View - Reel Format)</label>
-                  <input
-                    type="url"
-                    value={cmsHeroVideoMobile}
-                    onChange={(e) => setCmsHeroVideoMobile(e.target.value)}
-                    className="w-full bg-brand-bg/30 border border-brand-dark/35 rounded-xl py-2.5 px-4 text-xs focus:outline-none focus:border-brand-dark/70"
-                    placeholder="Optional (falls back to desktop video if empty)"
-                  />
-                  <span className="text-[10px] text-brand-dark/45 italic">Direct video file links (.mp4) only. Displays in full-screen vertical reel format on mobile devices.</span>
+                  <span className="text-[10px] text-brand-dark/45 italic">Direct video file links (.mp4) only. Automatically styled for all devices.</span>
                 </div>
  
                 <div className="space-y-1.5">
@@ -5126,7 +5114,7 @@ function formatPhone(phoneStr: string): string {
 
                     {/* Preview */}
                     <div className={`rounded-xl border-dashed border-2 p-3 text-[10px] leading-relaxed ${isOn ? "border-brand-dark/50 bg-white/40 text-brand-dark" : "border-gray-200 bg-gray-50 text-gray-400 line-through"}`}>
-                      🎁 <strong>Reserve your table</strong> through our website and receive <span className="text-brand-accent font-bold">{cmsDiscount}% OFF</span> on your final dining bill.
+                      🎉 <strong>Reserve your table</strong> through our website and receive <span className="text-brand-accent font-bold">{cmsDiscount}% OFF</span> on your final dining bill.
                     </div>
 
                     <div className="flex gap-3 pt-1">

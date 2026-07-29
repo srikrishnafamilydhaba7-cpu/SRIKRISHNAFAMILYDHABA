@@ -303,7 +303,12 @@ const defaultSettings: RestaurantSettings = {
   showWebExclusiveBar: true,
   showMenuPromo: true,
   webExclusiveText: "Book a table online & get 10% OFF your dining bill",
-  reservationPromoText: "Reserve your dining slot online today to receive a dynamic digital check-out voucher for 10% OFF your total bill amount."
+  reservationPromoText: "Reserve your dining slot online today to receive a dynamic digital check-out voucher for 10% OFF your total bill amount.",
+  heroVideo: "https://res.cloudinary.com/or5e9kak/video/upload/v1783783688/WhatsApp_Video_2026-07-11_at_20.57.19_c4tq0e.mp4",
+  instagramUrl: "https://instagram.com",
+  facebookUrl: "https://facebook.com",
+  zomatoUrl: "https://www.zomato.com/hyderabad/search?q=Sri%20Krishna%20Family%20Dhaba",
+  swiggyUrl: "https://www.swiggy.com/search?query=Sri%20Krishna%20Family%20Dhaba"
 };
 
 // Generates mock bookings to populate analytics
