@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo, useRef, Component, ReactNode } from "react";
+import { useState, useEffect, useMemo, useRef, Component } from "react";
+import type { ReactNode } from "react";
 import { Html5Qrcode } from "html5-qrcode";
 import { 
   LayoutDashboard, Menu as MenuIcon, Image as ImageIcon, Star, Mail, Settings as SettingsIcon, 
@@ -160,9 +161,6 @@ function QRCameraView({ onScan, isPaused }: { onScan: (text: string) => void; is
             const minEdge = Math.min(viewFinderWidth, viewFinderHeight);
             const size = Math.floor(minEdge * 0.70); // 70% of viewport size
             return { width: size, height: size };
-          },
-          experimentalFeatures: {
-            useBarCodeDetectorIfSupported: true
           }
         },
         (decodedText) => {
@@ -277,7 +275,7 @@ function QRCameraView({ onScan, isPaused }: { onScan: (text: string) => void; is
 
 
 
-class ErrorBoundary extends Component<{ children: ReactNode; fallback?: ReactNode }, { hasError: boolean; error: any }> {
+export class ErrorBoundary extends Component<{ children: ReactNode; fallback?: ReactNode }, { hasError: boolean; error: any }> {
   constructor(props: any) {
     super(props);
     this.state = { hasError: false, error: null };
@@ -2518,6 +2516,7 @@ function formatPhone(phoneStr: string): string {
       zomatoUrl: cmsZomatoUrl,
       swiggyUrl: cmsSwiggyUrl
     };
+    console.log("SKD Preview: draftData =", draftData);
 
     return (
       <div className="fixed inset-0 bg-brand-dark z-50 flex flex-col overflow-hidden">
@@ -4143,7 +4142,7 @@ function formatPhone(phoneStr: string): string {
                         </div>
                         <div className="flex justify-between border-b border-brand-dark/10 pb-1.5 font-bold">
                           <span className="text-brand-dark/50">Order Platform</span>
-                          <span className="font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded text-[9px] uppercase border border-emerald-200">{scanResult.order.platform}</span>
+                          <span className="font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded text-[9px] uppercase border border-emerald-200">{(scanResult.order as any).platform || "WhatsApp"}</span>
                         </div>
                         <div className="flex justify-between items-center pt-1 border-b border-brand-dark/10 pb-2">
                           <span className="text-brand-dark/50 font-bold">Delivery Status</span>
@@ -4379,7 +4378,6 @@ function formatPhone(phoneStr: string): string {
                   </button>
                   {allCategories.map((cat) => (
                     <button
-                      key={cat}
                       type="button"
                       onClick={() => setMenuSelectedCategory(cat)}
                       className={`flex items-center justify-center shrink-0 px-4 py-2 rounded-xl border text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
@@ -4522,7 +4520,7 @@ function formatPhone(phoneStr: string): string {
                 if (uncategorizedDishes.length === 0) return null;
 
                 return (
-                  <div className="bg-white rounded-3xl border border-brand-dark/30 shadow-sm overflow-hidden p-6 space-y-4">
+                  <div className="bg-white rounded-3xl border border-brand-dark/30 shadow-sm overflow-hidden p-6">
                     <h3 className="font-display font-black text-sm text-red-600 uppercase tracking-wider pb-2 border-b border-brand-dark/20">
                       UNCATEGORIZED ({uncategorizedDishes.length})
                     </h3>
@@ -4672,7 +4670,7 @@ function formatPhone(phoneStr: string): string {
                     <label className="text-[10px] font-bold text-brand-dark uppercase tracking-wider">Category</label>
                     <select
                       value={newGalleryCategory}
-                      onChange={(e) => setNewGalleryCategory(e.target.value as GalleryItem["category"])}
+                      onChange={(e) => setNewGalleryCategory(e.target.value as any)}
                       className="w-full bg-brand-bg/30 border border-brand-dark/35 rounded-xl py-2.5 px-4 text-xs focus:outline-none focus:border-brand-dark/70"
                     >
                       <option value="Dishes">Dishes</option>
@@ -6325,6 +6323,7 @@ function formatPhone(phoneStr: string): string {
                             <button
                               onClick={() => {
                                 setSecureDeleteConfig({
+                                  title: "Delete Audit Log",
                                   itemInfo: `Login Attempt: ${item.loginAttemptId} (${item.result} - ${new Date(item.timestamp).toLocaleString()})`,
                                   onConfirm: async () => {
                                     await handleDeleteLoginAudit(item);
