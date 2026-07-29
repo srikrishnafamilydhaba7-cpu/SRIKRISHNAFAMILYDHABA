@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 
 const values = [
   {
-    icon: <Leaf className="text-brand-accent fill-brand-accent/10" size={24} />,
+    icon: <Leaf className="text-brand-gold" size={24} />,
     title: "100% Pure Vegetarian",
     desc: "We strictly observe vegetarian regulations. No meat, fish, or egg ingredients enter our kitchen, providing you complete dining peace of mind."
   },
@@ -13,7 +13,7 @@ const values = [
     desc: "All staff wear headwear, masks, and gloves. Kitchen workspaces are thoroughly steam-cleaned twice daily with natural disinfectant compounds."
   },
   {
-    icon: <Flame className="text-brand-accent" size={24} />,
+    icon: <Flame className="text-brand-gold" size={24} />,
     title: "Authentic Clay Tandoors",
     desc: "Our breads and tikkas are slow-baked on hot charcoal embers inside traditional clay tandoors, creating that beautiful signature smoky finish."
   }

@@ -27,10 +27,11 @@ export interface Dish {
 interface DishCardProps {
   dish: Dish;
   onClickOverride?: (e: React.MouseEvent) => void;
+  onOrderOverride?: (dish: Dish) => void;
   showImage?: boolean;
 }
 
-export default function DishCard({ dish, onClickOverride, showImage = true }: DishCardProps) {
+export default function DishCard({ dish, onClickOverride, onOrderOverride, showImage = true }: DishCardProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isLiked, setIsLiked] = useState(false);
   const ordered = false;
@@ -41,6 +42,10 @@ export default function DishCard({ dish, onClickOverride, showImage = true }: Di
 
   const handleOrder = (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (onOrderOverride) {
+      onOrderOverride(dish);
+      return;
+    }
     if (onClickOverride) {
       onClickOverride(e);
       return;
@@ -146,7 +151,7 @@ export default function DishCard({ dish, onClickOverride, showImage = true }: Di
                       : "bg-brand-accent hover:bg-brand-dark text-brand-bg border border-brand-accent"
                   }`}
                 >
-                  {dish.outOfStock ? "Sold Out" : ordered ? "Added!" : "Add to Cart"}
+                  {dish.outOfStock ? "OUT OF STOCK" : ordered ? "Added!" : "ORDER"}
                 </button>
               </div>
             </div>
@@ -223,7 +228,7 @@ export default function DishCard({ dish, onClickOverride, showImage = true }: Di
                     : "bg-brand-accent/90 hover:bg-brand-accent text-brand-bg border-transparent"
                 }`}
               >
-                {dish.outOfStock ? "Sold Out" : ordered ? "Added!" : "Add to Cart"}
+                {dish.outOfStock ? "OUT OF STOCK" : ordered ? "Added!" : "ORDER"}
               </button>
             </div>
           </>
@@ -331,12 +336,18 @@ export default function DishCard({ dish, onClickOverride, showImage = true }: Di
 
                 <button
                   onClick={(e) => {
+                    if (dish.outOfStock) return;
                     setIsOpen(false);
                     handleOrder(e);
                   }}
-                  className="flex-1 bg-brand-accent hover:bg-brand-dark text-brand-bg font-bold text-sm tracking-wide py-3 px-6 rounded-full shadow-lg transition-all duration-300 flex items-center justify-center space-x-2"
+                  disabled={dish.outOfStock}
+                  className={`flex-1 font-bold text-sm tracking-wide py-3 px-6 rounded-full shadow-lg transition-all duration-300 flex items-center justify-center space-x-2 ${
+                    dish.outOfStock
+                      ? "bg-gray-200 text-gray-400 border border-gray-300 shadow-none cursor-not-allowed"
+                      : "bg-brand-accent hover:bg-brand-dark text-brand-bg"
+                  }`}
                 >
-                  <span>Add to Cart</span>
+                  <span>{dish.outOfStock ? "OUT OF STOCK" : "ORDER"}</span>
                 </button>
               </div>
             </motion.div>

@@ -114,10 +114,10 @@ export default function ReviewsPage() {
         {/* Header */}
         <div className="text-center max-w-3xl mx-auto mb-16 space-y-4">
           <span className="bg-brand-accent/15 border border-brand-accent/25 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider text-brand-accent">
-            Guest Experiences
+            Customer Experiences
           </span>
           <h1 className="font-display font-extrabold text-4xl sm:text-5xl md:text-6xl text-brand-dark tracking-tight leading-none">
-            Guest Reviews
+            Customer Reviews
           </h1>
           <p className="font-telugu text-brand-gold font-bold text-base sm:text-lg">
             కృష్ణ ఫ్యామిలీ ధాబ - వినియోగదారుల సమీక్షలు
@@ -143,7 +143,7 @@ export default function ReviewsPage() {
               ))}
             </div>
             <p className="text-xs text-brand-dark/65 font-sans">
-              Based on {stats.total + 321} reviews<br />(327 Google Reviews + website guest submissions)
+              Based on {stats.total + 321} reviews<br />(327 Google Reviews + website customer submissions)
             </p>
           </div>
 
@@ -188,19 +188,31 @@ export default function ReviewsPage() {
           </div>
 
           <div className="flex flex-wrap gap-3 items-center justify-end w-full md:w-auto">
-            {/* Rating select filter */}
-            <div className="relative flex items-center bg-brand-bg/50 border border-brand-gold/15 rounded-xl px-3 py-1.5 text-xs text-brand-dark font-semibold">
-              <SlidersHorizontal size={12} className="mr-2 text-brand-dark/65" />
-              <select
-                value={ratingFilter}
-                onChange={(e) => setRatingFilter(e.target.value === "All" ? "All" : Number(e.target.value))}
-                className="bg-transparent border-none focus:outline-none cursor-pointer py-1"
-              >
-                <option value="All">All Stars</option>
-                <option value="5">5 Stars</option>
-                <option value="4">4 Stars</option>
-                <option value="3">3 Stars</option>
-              </select>
+            {/* Rating tab buttons filter */}
+            <div className="flex flex-wrap gap-1 bg-brand-bg/30 border border-brand-gold/15 rounded-xl p-1 text-[10px] sm:text-xs">
+              {[
+                { label: "ALL STARS", value: "All" },
+                { label: "5 STARS", value: 5 },
+                { label: "4 STARS", value: 4 },
+                { label: "3 STARS", value: 3 },
+                { label: "2 STARS", value: 2 },
+                { label: "1 STAR", value: 1 }
+              ].map((opt) => {
+                const isSel = ratingFilter === opt.value;
+                return (
+                  <button
+                    key={opt.label}
+                    onClick={() => setRatingFilter(opt.value as any)}
+                    className={`px-2.5 py-1 rounded-lg font-bold tracking-wider transition-all duration-200 cursor-pointer ${
+                      isSel
+                        ? "bg-brand-gold text-brand-dark shadow-sm"
+                        : "text-brand-dark/70 hover:text-brand-gold hover:bg-brand-dark/5"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
             </div>
 
             {/* Sort Select */}
@@ -370,7 +382,7 @@ export default function ReviewsPage() {
                       </div>
                       <h4 className="font-display font-extrabold text-lg text-brand-dark">Review Submitted!</h4>
                       <p className="text-xs text-brand-dark/70 max-w-xs">
-                        Thank you for your valuable feedback. It has been successfully added to our guest registry.
+                        Thank you for your valuable feedback. It has been successfully added to our customer registry.
                       </p>
                     </div>
                   )}

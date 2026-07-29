@@ -53,7 +53,7 @@ export default function Footer() {
             </p>
 
             {/* Social Media Circular Buttons Grid */}
-            <div className="flex items-center space-x-3 pt-2">
+            <div className="flex items-center justify-between w-full md:w-auto md:justify-start space-x-0 md:space-x-3 pt-2">
               {/* Phone (Green) */}
               <a
                 href={`tel:${cleanPhone}`}
@@ -76,7 +76,7 @@ export default function Footer() {
 
               {/* Instagram (Instagram gradient) */}
               <a
-                href="https://instagram.com"
+                href={settings?.instagramUrl || "https://instagram.com"}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="w-10 h-10 rounded-full bg-gradient-to-tr from-[#f9ce34] via-[#ee2a7b] to-[#6228d7] text-white flex items-center justify-center transition-transform hover:scale-105"
@@ -141,9 +141,6 @@ export default function Footer() {
                   <p className="text-brand-bg/70 mt-1">{timings}</p>
                 </div>
               </div>
-              <div className="text-xs text-brand-accent bg-brand-accent/10 border border-brand-accent/20 px-3 py-2 rounded-lg">
-                ✨ Open on holidays & festivals. Family dining rooms available.
-              </div>
             </div>
           </div>
 
@@ -154,7 +151,7 @@ export default function Footer() {
             </h3>
             <div className="space-y-4 text-xs sm:text-sm">
               <a
-                href="https://www.google.com/maps/place/Sri+Krishna+Family+Dhaba/@17.5254461,78.3950244,17z/data=!3m1!4b1!4m6!3m5!1s0x3bcb8f0052362da1:0xd093fe41bf080e4d!8m2!3d17.5254461!4d78.3950244!16s%2Fg%2F11wvt0qq4l"
+                href="https://maps.app.goo.gl/gCPA6gsC3D5yoXos6"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-start space-x-2 group/branch hover:text-brand-gold transition-colors duration-200 block"
@@ -166,7 +163,7 @@ export default function Footer() {
                 </div>
               </a>
               <a
-                href="https://maps.google.com/?q=Sri+Krishna+Family+Dhaba+Moinabad+Telangana"
+                href="https://maps.app.goo.gl/geAW7347GGMi1GXH6"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-start space-x-2 group/branch hover:text-brand-gold transition-colors duration-200 block"
@@ -191,7 +188,17 @@ export default function Footer() {
         <div className="pt-8 border-t border-white/10 flex flex-col md:flex-row justify-between items-center text-xs text-brand-bg/60">
           <p>© {new Date().getFullYear()} Sri Krishna Family Dhaba. All rights reserved.</p>
           <p className="mt-4 md:mt-0">
-            Made with ♥ in Hyderabad
+            Made by{" "}
+            <a
+              href={`https://wa.me/910000000000?text=${encodeURIComponent(
+                "Hello Team Veins! 👋\n\nI came across your website and was really impressed with your work.\n\nI'm interested in discussing a project with your team. Could you please share more details about your services, pricing, and the development process?\n\nLooking forward to working with Team Veins.\n\nThank you!"
+              )}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-brand-gold hover:text-brand-accent font-bold transition-all duration-300 hover:underline underline-offset-4 decoration-brand-gold/30 hover:decoration-brand-accent/50 inline-block hover:scale-105"
+            >
+              Team Veins
+            </a>
           </p>
         </div>
       </div>

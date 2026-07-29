@@ -55,10 +55,10 @@ export default function TestimonialCard({ testimonial, onClick }: TestimonialCar
       {/* User Info */}
       <div className="flex items-center space-x-3 pt-3 border-t border-brand-dark/5 mt-auto">
         <div className="w-10 h-10 rounded-full bg-brand-accent/10 border border-brand-gold/20 flex items-center justify-center font-bold text-brand-accent font-display text-sm shrink-0 overflow-hidden">
-          {testimonial.avatar.startsWith("http") ? (
+          {testimonial.avatar && testimonial.avatar.startsWith("http") ? (
             <img src={testimonial.avatar} alt={testimonial.name} className="w-full h-full object-cover" />
           ) : (
-            testimonial.avatar
+            testimonial.avatar || testimonial.name?.charAt(0) || "G"
           )}
         </div>
         <div className="min-w-0">

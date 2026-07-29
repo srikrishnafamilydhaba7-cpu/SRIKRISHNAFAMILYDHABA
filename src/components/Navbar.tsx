@@ -29,7 +29,8 @@ export default function Navbar() {
         if (settings.contactPhone) {
           setPhone(settings.contactPhone);
         }
-        setWebExclusiveText(settings.webExclusiveText || `Book a table online & get ${settings.discountPercent ?? 10}% OFF your dining bill`);
+        const rawText = settings.webExclusiveText || "Book a table online & get {discount}% OFF your dining bill";
+        setWebExclusiveText(db.formatPromoText(rawText, settings.discountPercent ?? 10));
         setShowBar(settings.showWebExclusiveBar !== false);
       }
     };
@@ -111,7 +112,16 @@ export default function Navbar() {
         <div className="w-full px-4 sm:px-8 lg:px-12 xl:px-16 relative">
           <div className="flex items-center justify-between">
             {/* Logo Section */}
-            <Link to="/" className="flex items-center space-x-3 group">
+            <Link
+              to="/"
+              className="flex items-center space-x-3 group"
+              onClick={(e) => {
+                if (location.pathname === "/") {
+                  e.preventDefault();
+                  window.scrollTo({ top: 0, behavior: "smooth" });
+                }
+              }}
+            >
               {/* Circular Gold Seal Logo */}
               <div className="w-10 h-10 rounded-full bg-brand-dark border-2 border-brand-gold flex items-center justify-center shadow-md relative overflow-hidden group-hover:scale-105 transition-transform duration-300">
                 <svg className="w-8 h-8 text-brand-gold fill-brand-gold" viewBox="0 0 100 100">
@@ -140,6 +150,12 @@ export default function Navbar() {
                   <Link
                     key={link.path}
                     to={link.path}
+                    onClick={(e) => {
+                      if (location.pathname === link.path) {
+                        e.preventDefault();
+                        window.scrollTo({ top: 0, behavior: "smooth" });
+                      }
+                    }}
                     className={`relative text-[11px] xl:text-xs font-bold tracking-widest transition-colors duration-300 py-1 ${
                       isActive 
                         ? "text-brand-gold" 
@@ -264,7 +280,13 @@ export default function Navbar() {
                   >
                     <Link
                       to={link.path}
-                      onClick={() => setIsOpen(false)}
+                      onClick={(e) => {
+                        setIsOpen(false);
+                        if (location.pathname === link.path) {
+                          e.preventDefault();
+                          window.scrollTo({ top: 0, behavior: "smooth" });
+                        }
+                      }}
                       className={`block py-3 px-4 rounded-2xl text-lg font-black tracking-widest uppercase transition-all duration-300 text-center ${
                         isActive
                           ? "bg-brand-gold text-brand-dark shadow-md"

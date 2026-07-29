@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { Link } from "react-router-dom";
 import { Phone, Mail, ArrowRight, MapPin, Clock } from "lucide-react";
 import { db } from "../utils/db";
 import WhatsAppIcon from "../components/WhatsAppIcon";
@@ -23,7 +24,7 @@ const branches: Branch[] = [
     hours: "Mon – Sun: 11:30 AM – 11:45 PM",
     mapSrc:
       "https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3805.378779646875!2d78.3924395!3d17.5254461!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x3bcb8f0052362da1%3A0xd093fe41bf080e4d!2sSri%20Krishna%20Family%20Dhaba!5e0!3m2!1sen!2sin!4v1704481029192!5m2!1sen!2sin",
-    googleMapsUrl: "https://www.google.com/maps/place/Sri+Krishna+Family+Dhaba/@17.5254461,78.3950244,17z/data=!3m1!4b1!4m6!3m5!1s0x3bcb8f0052362da1:0xd093fe41bf080e4d!8m2!3d17.5254461!4d78.3950244!16s%2Fg%2F11wvt0qq4l"
+    googleMapsUrl: "https://maps.app.goo.gl/gCPA6gsC3D5yoXos6"
   },
   {
     id: "aziznagar",
@@ -34,7 +35,7 @@ const branches: Branch[] = [
     hours: "Mon – Sun: 11:00 AM – 11:30 PM",
     mapSrc:
       "https://maps.google.com/maps?q=17.3484252,78.3184651(Balaji%20Chilkur%20Family%20Dhaba)&ll=17.3518,78.3184651&z=16&hl=en&output=embed",
-    googleMapsUrl: "https://www.google.com/maps/place/Balaji+Chilkur+Family+Dhaba/@17.3484252,78.3184651,15z/data=!4m2!3m1!1s0x0:0xbf2c80be0a597a76?sa=X"
+    googleMapsUrl: "https://maps.app.goo.gl/geAW7347GGMi1GXH6"
   }
 ];
 
@@ -67,6 +68,9 @@ export default function ContactPage() {
   const mainEmail = settings?.contactEmail || "contact@srikrishnadhaba.com";
   const cleanPhone = mainPhone.replace(/[^0-9]/g, "");
   const whatsappNum = settings?.whatsappNumber ? settings.whatsappNumber.replace(/[^0-9]/g, "") : "919032292421";
+  const instagramUrl = settings?.instagramUrl || "https://instagram.com";
+  const facebookUrl = settings?.facebookUrl || "https://facebook.com";
+  const zomatoUrl = settings?.zomatoUrl || "https://www.zomato.com/hyderabad/search?q=Sri%20Krishna%20Family%20Dhaba";
 
   return (
     <div className="min-h-screen pt-28 pb-20 relative bg-brand-bg">
@@ -85,77 +89,77 @@ export default function ContactPage() {
         {/* Two-Column Grid: Contact Cards + Order Online */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-start mt-8">
           {/* Left Column: Grid of Contact Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-3 sm:gap-4">
             {/* WhatsApp */}
             <a
               href={`https://wa.me/${whatsappNum}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="bg-white rounded-2xl p-6 shadow-sm border border-brand-gold/10 hover:shadow-md transition-all duration-300 flex flex-col items-center text-center group"
+              className="bg-white rounded-2xl p-4 sm:p-5 shadow-sm border border-brand-gold/10 hover:shadow-md transition-all duration-300 flex flex-col items-center text-center group"
             >
-              <div className="w-12 h-12 rounded-full bg-emerald-50 text-emerald-500 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                <WhatsAppIcon size={22} />
+              <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-500 flex items-center justify-center mb-2.5 group-hover:scale-110 transition-transform">
+                <WhatsAppIcon size={18} />
               </div>
-              <h3 className="font-sans font-bold text-brand-dark text-sm">WhatsApp</h3>
-              <p className="text-xs text-brand-dark/50 mt-1">Chat with us</p>
+              <h3 className="font-sans font-bold text-brand-dark text-xs sm:text-sm">WhatsApp</h3>
+              <p className="text-[10px] sm:text-xs text-brand-dark/50 mt-0.5">Chat with us</p>
             </a>
 
             {/* Instagram */}
             <a
-              href="https://instagram.com"
+              href={instagramUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="bg-white rounded-2xl p-6 shadow-sm border border-brand-gold/10 hover:shadow-md transition-all duration-300 flex flex-col items-center text-center group"
+              className="bg-white rounded-2xl p-4 sm:p-5 shadow-sm border border-brand-gold/10 hover:shadow-md transition-all duration-300 flex flex-col items-center text-center group"
             >
-              <div className="w-12 h-12 rounded-full bg-pink-50 text-pink-500 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+              <div className="w-10 h-10 rounded-full bg-pink-50 text-pink-500 flex items-center justify-center mb-2.5 group-hover:scale-110 transition-transform">
+                <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
                   <rect width="20" height="20" x="2" y="2" rx="5" ry="5" />
                   <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
                   <line x1="17.5" x2="17.51" y1="6.5" y2="6.5" />
                 </svg>
               </div>
-              <h3 className="font-sans font-bold text-brand-dark text-sm">Instagram</h3>
-              <p className="text-xs text-brand-dark/50 mt-1">Follow updates</p>
+              <h3 className="font-sans font-bold text-brand-dark text-xs sm:text-sm">Instagram</h3>
+              <p className="text-[10px] sm:text-xs text-brand-dark/50 mt-0.5">Follow updates</p>
             </a>
 
             {/* Facebook */}
             <a
-              href="https://facebook.com"
+              href={facebookUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="bg-white rounded-2xl p-6 shadow-sm border border-brand-gold/10 hover:shadow-md transition-all duration-300 flex flex-col items-center text-center group"
+              className="bg-white rounded-2xl p-4 sm:p-5 shadow-sm border border-brand-gold/10 hover:shadow-md transition-all duration-300 flex flex-col items-center text-center group"
             >
-              <div className="w-12 h-12 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+              <div className="w-10 h-10 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mb-2.5 group-hover:scale-110 transition-transform">
+                <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z" />
                 </svg>
               </div>
-              <h3 className="font-sans font-bold text-brand-dark text-sm">Facebook</h3>
-              <p className="text-xs text-brand-dark/50 mt-1">Join community</p>
+              <h3 className="font-sans font-bold text-brand-dark text-xs sm:text-sm">Facebook</h3>
+              <p className="text-[10px] sm:text-xs text-brand-dark/50 mt-0.5">Join community</p>
             </a>
 
             {/* Call Us */}
             <a
               href={`tel:${cleanPhone}`}
-              className="bg-white rounded-2xl p-6 shadow-sm border border-brand-gold/10 hover:shadow-md transition-all duration-300 flex flex-col items-center text-center group"
+              className="bg-white rounded-2xl p-4 sm:p-5 shadow-sm border border-brand-gold/10 hover:shadow-md transition-all duration-300 flex flex-col items-center text-center group"
             >
-              <div className="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                <Phone size={20} className="fill-emerald-500/10" />
+              <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mb-2.5 group-hover:scale-110 transition-transform">
+                <Phone size={18} className="fill-emerald-500/10" />
               </div>
-              <h3 className="font-sans font-bold text-brand-dark text-sm">Call Us</h3>
-              <p className="text-xs text-brand-accent font-bold mt-1">{mainPhone}</p>
+              <h3 className="font-sans font-bold text-brand-dark text-xs sm:text-sm">Call Us</h3>
+              <p className="text-[10px] sm:text-xs text-brand-accent font-bold mt-0.5">{mainPhone}</p>
             </a>
 
             {/* Mail Us */}
             <a
               href={`mailto:${mainEmail}`}
-              className="bg-white rounded-2xl p-6 shadow-sm border border-brand-gold/10 hover:shadow-md transition-all duration-300 flex flex-col items-center text-center sm:col-span-2 group"
+              className="bg-white rounded-2xl p-4 sm:p-5 shadow-sm border border-brand-gold/10 hover:shadow-md transition-all duration-300 flex flex-col items-center text-center col-span-2 group"
             >
-              <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-500 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                <Mail size={20} />
+              <div className="w-10 h-10 rounded-full bg-rose-50 text-rose-500 flex items-center justify-center mb-2.5 group-hover:scale-110 transition-transform">
+                <Mail size={18} />
               </div>
-              <h3 className="font-sans font-bold text-brand-dark text-sm">Mail Us</h3>
-              <p className="text-xs text-brand-dark/65 mt-1 font-medium">{mainEmail}</p>
+              <h3 className="font-sans font-bold text-brand-dark text-xs sm:text-sm">Mail Us</h3>
+              <p className="text-[10px] sm:text-xs text-brand-dark/65 mt-0.5 font-medium">{mainEmail}</p>
             </a>
           </div>
 
@@ -180,7 +184,7 @@ export default function ContactPage() {
             <div className="space-y-4 pt-2">
               {/* Zomato */}
               <a
-                href="https://www.zomato.com/hyderabad/search?q=Sri%20Krishna%20Family%20Dhaba"
+                href={zomatoUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center justify-between bg-white rounded-2xl p-5 shadow-sm border-l-4 border-red-500 hover:shadow-md transition-shadow group"
@@ -217,10 +221,8 @@ export default function ContactPage() {
               </a>
 
               {/* WhatsApp Delivery */}
-              <a
-                href={`https://wa.me/${whatsappNum}?text=Hello,%20I%20would%20like%20to%20order%20food%20for%20delivery.`}
-                target="_blank"
-                rel="noopener noreferrer"
+              <Link
+                to="/menu?orderType=Delivery&orderPlatform=WhatsApp"
                 className="flex items-center justify-between bg-white rounded-2xl p-5 shadow-sm border-l-4 border-emerald-500 hover:shadow-md transition-shadow group"
               >
                 <div className="flex items-center gap-4">
@@ -235,7 +237,7 @@ export default function ContactPage() {
                 <div className="w-8 h-8 rounded-full bg-brand-bg flex items-center justify-center text-brand-dark group-hover:bg-brand-dark group-hover:text-brand-bg transition-colors">
                   <ArrowRight size={14} />
                 </div>
-              </a>
+              </Link>
             </div>
           </div>
         </div>

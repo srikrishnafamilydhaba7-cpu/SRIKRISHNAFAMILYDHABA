@@ -9,6 +9,8 @@ import GalleryPage from "./pages/GalleryPage";
 import ContactPage from "./pages/ContactPage";
 import ReviewsPage from "./pages/ReviewsPage";
 import BookTable from "./pages/BookTable";
+import ReviewPage from "./pages/ReviewPage";
+import GiftCouponPage from "./pages/GiftCouponPage";
 
 function AppContent() {
   return (
@@ -23,6 +25,8 @@ function AppContent() {
           <Route path="/reviews" element={<ReviewsPage />} />
           <Route path="/contact" element={<ContactPage />} />
           <Route path="/book-table" element={<BookTable />} />
+          <Route path="/review" element={<ReviewPage />} />
+          <Route path="/gift-coupon" element={<GiftCouponPage />} />
         </Routes>
       </main>
       <Footer />

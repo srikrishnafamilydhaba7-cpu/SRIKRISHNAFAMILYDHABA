@@ -1,15 +1,19 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, Component, ReactNode } from "react";
 import { Html5Qrcode } from "html5-qrcode";
 import { 
   LayoutDashboard, Menu as MenuIcon, Image as ImageIcon, Star, Mail, Settings as SettingsIcon, 
   LogOut, Check, X, Plus, Edit, Trash2, Calendar, ShieldAlert,
   Lock, ShoppingCart, UserCheck, Eye, EyeOff, Search, FileText,
   Database, Download, RotateCw, Upload, Camera, QrCode, Printer,
-  Clock, Users, CheckCircle, Utensils, Folder, MessageSquare
+  Clock, Users, CheckCircle, Utensils, Folder, MessageSquare, Gift
 } from "lucide-react";
 import { db } from "../../../src/utils/db";
-import type { Booking, Review, GalleryItem, ContactInquiry, RestaurantSettings, LoyaltyVoucher, WhatsAppOrder, AuditLog } from "../../../src/utils/db";
+import { auth, storage } from "../utils/firebase";
+import { EmailAuthProvider, reauthenticateWithCredential } from "firebase/auth";
+import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
+import type { Booking, Review, GalleryItem, ContactInquiry, RestaurantSettings, LoyaltyVoucher, WhatsAppOrder, AuditLog, GiftCoupon, LoginAudit } from "../../../src/utils/db";
 import type { Dish } from "../../../src/components/DishCard";
+import Home from "../../../src/pages/Home";
 
 const staticCategories = [
   "SOUPS",
@@ -50,7 +54,9 @@ type AdminTab =
   | "contacts"
   | "customers"
   | "audit"
-  | "backups";
+  | "backups"
+  | "coupons"
+  | "security_audit";
 
 interface AdminUser {
   username: string;
@@ -87,7 +93,7 @@ function updateTextDiscountPercent(text: string, newPercent: number): string {
   return text.replace(/(\d+)\s*%/g, `${newPercent}%`);
 }
 
-function QRCameraView({ onScan }: { onScan: (text: string) => void }) {
+function QRCameraView({ onScan, isPaused }: { onScan: (text: string) => void; isPaused: boolean }) {
   const [cameras, setCameras] = useState<{ id: string; label: string }[]>([]);
   const [selectedCameraId, setSelectedCameraId] = useState<string>("");
   const [isScanning, setIsScanning] = useState(false);
@@ -111,8 +117,17 @@ function QRCameraView({ onScan }: { onScan: (text: string) => void }) {
       });
 
     return () => {
-      if (html5QrCodeRef.current && html5QrCodeRef.current.isScanning) {
-        html5QrCodeRef.current.stop().catch(() => {});
+      if (html5QrCodeRef.current) {
+        const scanner = html5QrCodeRef.current;
+        if (scanner.isScanning) {
+          scanner.stop().then(() => {
+            const container = document.getElementById("qr-camera-viewport");
+            if (container) container.innerHTML = "";
+          }).catch(() => {});
+        } else {
+          const container = document.getElementById("qr-camera-viewport");
+          if (container) container.innerHTML = "";
+        }
       }
     };
   }, []);
@@ -123,7 +138,16 @@ function QRCameraView({ onScan }: { onScan: (text: string) => void }) {
 
     try {
       if (html5QrCodeRef.current && html5QrCodeRef.current.isScanning) {
-        await html5QrCodeRef.current.stop();
+        try {
+          await html5QrCodeRef.current.stop();
+        } catch (e) {
+          console.warn("Error stopping scanner:", e);
+        }
+      }
+
+      const container = document.getElementById("qr-camera-viewport");
+      if (container) {
+        container.innerHTML = "";
       }
 
       const qrInstance = new Html5Qrcode("qr-camera-viewport");
@@ -132,8 +156,15 @@ function QRCameraView({ onScan }: { onScan: (text: string) => void }) {
       await qrInstance.start(
         cameraId,
         {
-          fps: 15,
-          qrbox: { width: 220, height: 220 }
+          fps: 24,
+          qrbox: (viewFinderWidth, viewFinderHeight) => {
+            const minEdge = Math.min(viewFinderWidth, viewFinderHeight);
+            const size = Math.floor(minEdge * 0.70); // 70% of viewport size
+            return { width: size, height: size };
+          },
+          experimentalFeatures: {
+            useBarCodeDetectorIfSupported: true
+          }
         },
         (decodedText) => {
           playScannerBeep();
@@ -151,10 +182,16 @@ function QRCameraView({ onScan }: { onScan: (text: string) => void }) {
   };
 
   useEffect(() => {
-    if (selectedCameraId) {
+    if (isPaused) {
+      if (html5QrCodeRef.current && html5QrCodeRef.current.isScanning) {
+        html5QrCodeRef.current.stop().then(() => {
+          setIsScanning(false);
+        }).catch(() => {});
+      }
+    } else if (selectedCameraId) {
       startCamera(selectedCameraId);
     }
-  }, [selectedCameraId]);
+  }, [selectedCameraId, isPaused]);
 
   return (
     <div className="space-y-4">
@@ -241,6 +278,33 @@ function QRCameraView({ onScan }: { onScan: (text: string) => void }) {
 
 
 
+class ErrorBoundary extends Component<{ children: ReactNode; fallback?: ReactNode }, { hasError: boolean; error: any }> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: any, errorInfo: any) {
+    console.error("ErrorBoundary caught an error:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return this.props.fallback || (
+        <div className="p-6 bg-red-50 border border-red-200 text-red-600 rounded-xl text-xs space-y-2">
+          <p className="font-bold">Unable to load homepage preview.</p>
+          <pre className="font-mono text-[10px] bg-red-100/50 p-2 rounded overflow-auto max-h-40">{this.state.error?.stack || this.state.error?.message || String(this.state.error)}</pre>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function AdminPortal() {
   // Auth State
   const [user, setUser] = useState<AdminUser | null>(null);
@@ -269,6 +333,101 @@ export default function AdminPortal() {
   const [vouchers, setVouchers] = useState<LoyaltyVoucher[]>([]);
   const [orders, setOrders] = useState<WhatsAppOrder[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [loginAudits, setLoginAudits] = useState<LoginAudit[]>([]);
+  const [enableSnapshot, setEnableSnapshot] = useState(true);
+  const [isSecurityAuditUnlocked, setIsSecurityAuditUnlocked] = useState(false);
+  const [securityReauthPassword, setSecurityReauthPassword] = useState("");
+  const [securityReauthError, setSecurityReauthError] = useState("");
+  const [securityReauthIsVerifying, setSecurityReauthIsVerifying] = useState(false);
+  const [isSecurityReauthOpen, setIsSecurityReauthOpen] = useState(false);
+  const [retentionPopupOpen, setRetentionPopupOpen] = useState(false);
+  const [isRetentionDeleting, setIsRetentionDeleting] = useState(false);
+  const [isRetentionReauthOpen, setIsRetentionReauthOpen] = useState(false);
+  const [retentionReauthPassword, setRetentionReauthPassword] = useState("");
+  const [retentionReauthError, setRetentionReauthError] = useState("");
+  const [retentionReauthIsVerifying, setRetentionReauthIsVerifying] = useState(false);
+  const [activeViewImage, setActiveViewImage] = useState<string | null>(null);
+
+  // Delete all verification states
+  const [isDeleteAllOpen, setIsDeleteAllOpen] = useState(false);
+  const [deleteAllTarget, setDeleteAllTarget] = useState<"bookings" | "audit" | "security_audit" | "orders" | null>(null);
+  const [deleteAllPassword, setDeleteAllPassword] = useState("");
+  const [deleteAllError, setDeleteAllError] = useState("");
+  const [isDeletingAll, setIsDeletingAll] = useState(false);
+
+  // Stock updating states
+  const [updatingStockId, setUpdatingStockId] = useState<string | null>(null);
+  const [stockMessage, setStockMessage] = useState<{ text: string; isError: boolean } | null>(null);
+
+  // Unread badge counts
+  const [unreadReservationsCount, setUnreadReservationsCount] = useState(0);
+  const [unreadOrdersCount, setUnreadOrdersCount] = useState(0);
+  const [unreadReviewsCount, setUnreadReviewsCount] = useState(0);
+
+  // Draft vs Published States
+  const [settingsDraft, setSettingsDraft] = useState<RestaurantSettings | null>(null);
+  const [isPreviewMode, setIsPreviewMode] = useState(false);
+  const [previewViewport, setPreviewViewport] = useState<"desktop" | "tablet" | "mobile">("desktop");
+  const [showPublishConfirm, setShowPublishConfirm] = useState(false);
+
+  // Delivered Status Confirmation States
+  const [orderToMarkDelivered, setOrderToMarkDelivered] = useState<WhatsAppOrder | null>(null);
+  const [isDeliveringOrderId, setIsDeliveringOrderId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (stockMessage) {
+      const timer = setTimeout(() => setStockMessage(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [stockMessage]);
+
+  const reservationsLastSeenKey = user ? `skd_reservations_last_seen_${user.username}` : '';
+  const ordersLastSeenKey = user ? `skd_orders_last_seen_${user.username}` : '';
+  const reviewsLastSeenKey = user ? `skd_reviews_last_seen_${user.username}` : '';
+
+  useEffect(() => {
+    if (!user) return;
+
+    // If currently on Reservations page, mark as seen
+    if (activeTab === "bookings") {
+      localStorage.setItem(reservationsLastSeenKey, new Date().toISOString());
+    }
+    // If currently on WhatsApp Orders page, mark as seen
+    if (activeTab === "orders") {
+      localStorage.setItem(ordersLastSeenKey, new Date().toISOString());
+    }
+    // If currently on Testimonials page, mark as seen
+    if (activeTab === "reviews") {
+      localStorage.setItem(reviewsLastSeenKey, new Date().toISOString());
+    }
+
+    // Calculate unread reservations
+    const resLastSeenStr = localStorage.getItem(reservationsLastSeenKey);
+    const resLastSeenTime = resLastSeenStr ? new Date(resLastSeenStr).getTime() : 0;
+    const newResCount = bookings.filter(b => {
+      const time = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return time > resLastSeenTime;
+    }).length;
+    setUnreadReservationsCount(activeTab === "bookings" ? 0 : newResCount);
+
+    // Calculate unread orders
+    const ordLastSeenStr = localStorage.getItem(ordersLastSeenKey);
+    const ordLastSeenTime = ordLastSeenStr ? new Date(ordLastSeenStr).getTime() : 0;
+    const newOrdCount = orders.filter(o => {
+      const time = o.createdAt ? new Date(o.createdAt).getTime() : 0;
+      return time > ordLastSeenTime;
+    }).length;
+    setUnreadOrdersCount(activeTab === "orders" ? 0 : newOrdCount);
+
+    // Calculate unread reviews
+    const revLastSeenStr = localStorage.getItem(reviewsLastSeenKey);
+    const revLastSeenTime = revLastSeenStr ? new Date(revLastSeenStr).getTime() : 0;
+    const newRevCount = reviews.filter(r => {
+      const ts = r.id.startsWith("rev-") ? parseInt(r.id.split("-")[1], 10) : 0;
+      return ts > revLastSeenTime && r.status === "Pending";
+    }).length;
+    setUnreadReviewsCount(activeTab === "reviews" ? 0 : newRevCount);
+  }, [bookings, orders, reviews, activeTab, user, reservationsLastSeenKey, ordersLastSeenKey, reviewsLastSeenKey]);
 
   const allCategories = useMemo(() => {
     const list = [...staticCategories];
@@ -338,20 +497,53 @@ export default function AdminPortal() {
   const [newGalleryTitle, setNewGalleryTitle] = useState("");
   const [newGalleryCategory, setNewGalleryCategory] = useState<GalleryItem["category"]>("Dishes");
   
-  // Dish Deletion Auth States
-  const [dishToDelete, setDishToDelete] = useState<Dish | null>(null);
-  const [deleteUsername, setDeleteUsername] = useState("");
-  const [deletePassword, setDeletePassword] = useState("");
-  const [deleteError, setDeleteError] = useState("");
+  // Secure Deletion Modal State
+  const [secureDeleteConfig, setSecureDeleteConfig] = useState<{
+    title: string;
+    itemInfo: string;
+    onConfirm: () => void | Promise<void>;
+  } | null>(null);
+  const [secureDeletePassword, setSecureDeletePassword] = useState("");
+  const [secureDeleteError, setSecureDeleteError] = useState("");
+  const [secureDeleteIsVerifying, setSecureDeleteIsVerifying] = useState(false);
+  const [secureDeleteIsDeleting, setSecureDeleteIsDeleting] = useState(false);
 
   // Backups State
   const [backupFile, setBackupFile] = useState<File | null>(null);
 
   // QR Scanner State
   const [scanInputCode, setScanInputCode] = useState("");
-  const [scanResult, setScanResult] = useState<{ success: boolean; message: string; voucher?: LoyaltyVoucher; booking?: Booking } | null>(null);
-  const [verificationMode, setVerificationMode] = useState<"all" | "booking" | "voucher">("booking");
+  const [scanResult, setScanResult] = useState<{ success: boolean; message: string; voucher?: LoyaltyVoucher; booking?: Booking; coupon?: GiftCoupon; order?: WhatsAppOrder } | null>(null);
+  const [verificationMode, setVerificationMode] = useState<"all" | "booking" | "voucher" | "coupon" | "order">("all");
   const [scanMethod, setScanMethod] = useState<"camera" | "manual">("camera");
+
+  // Gift Coupon management states
+  const [coupons, setCoupons] = useState<GiftCoupon[]>([]);
+  const [couponSearchQuery, setCouponSearchQuery] = useState("");
+  const [couponFilterStatus, setCouponFilterStatus] = useState<string>("All");
+  const [isCouponModalOpen, setIsCouponModalOpen] = useState(false);
+  const [isCouponSuccessOpen, setIsCouponSuccessOpen] = useState(false);
+  const [newCouponSuccess, setNewCouponSuccess] = useState<GiftCoupon | null>(null);
+
+  // New Coupon Form state
+  const [newCouponCustomer, setNewCouponCustomer] = useState<any | null>(null);
+  const [newCouponMinBill, setNewCouponMinBill] = useState(1000);
+  const [newCouponDiscount, setNewCouponDiscount] = useState(20);
+  const [newCouponCategory, setNewCouponCategory] = useState("LOYALTY REWARD");
+  const [newCouponCustomCategory, setNewCouponCustomCategory] = useState("");
+  const [newCouponValidity, setNewCouponValidity] = useState(30);
+
+  // Search customer inside combobox dropdown
+  const [customerSearch, setCustomerSearch] = useState("");
+  const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
+
+  // Coupon Verification states
+  const [currentBillAmount, setCurrentBillAmount] = useState<string>("");
+  const [isCouponEligible, setIsCouponEligible] = useState<boolean | null>(null);
+  const [couponEligibilityError, setCouponEligibilityError] = useState("");
+  const [calculatedDiscountAmount, setCalculatedDiscountAmount] = useState(0);
+  const [calculatedFinalAmount, setCalculatedFinalAmount] = useState(0);
+  const [isConfirmingRedemption, setIsConfirmingRedemption] = useState(false);
 
   // Homepage CMS State
   const [cmsHeroVideo, setCmsHeroVideo] = useState("");
@@ -362,21 +554,84 @@ export default function AdminPortal() {
   const [cmsDiscount, setCmsDiscount] = useState<number>(10);
   const [webExclusiveTextInput, setWebExclusiveTextInput] = useState("");
   const [reservationPromoInput, setReservationPromoInput] = useState("");
+  const [cmsInstagramUrl, setCmsInstagramUrl] = useState("");
+  const [cmsFacebookUrl, setCmsFacebookUrl] = useState("");
+  const [cmsZomatoUrl, setCmsZomatoUrl] = useState("");
 
   // Load Data on login
   const loadData = () => {
     db.init();
-    setBookings(db.getBookings().reverse());
+    
+    // Sort bookings descending by parsed ID numbers (fallback to createdAt)
+    const sortedBookings = db.getBookings().sort((a, b) => {
+      const numA = parseInt(a.id.replace(/\D/g, ""), 10) || 0;
+      const numB = parseInt(b.id.replace(/\D/g, ""), 10) || 0;
+      if (numB !== numA) return numB - numA;
+      
+      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return timeB - timeA;
+    });
+    setBookings(sortedBookings);
+    
     setMenu(db.getMenu());
     setGallery(db.getGallery());
     setReviews(db.getReviews().reverse());
     setContacts(db.getContacts().reverse());
     setSettings(db.getSettings());
+    setSettingsDraft(db.getSettingsDraft());
     
-    // New operations loads
     setVouchers((db as any).getVouchers().reverse());
-    setOrders((db as any).getOrders().reverse());
+    
+    // Sort orders descending by parsed ID numbers (fallback to createdAt)
+    const sortedOrders = (db as any).getOrders().sort((a: any, b: any) => {
+      const numA = parseInt(a.id.replace(/\D/g, ""), 10) || 0;
+      const numB = parseInt(b.id.replace(/\D/g, ""), 10) || 0;
+      if (numB !== numA) return numB - numA;
+      
+      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return timeB - timeA;
+    });
+    setOrders(sortedOrders);
+    
     setAuditLogs((db as any).getAuditLogs().reverse());
+    setCoupons((db as any).getGiftCoupons().reverse());
+    setLoginAudits((db as any).getLoginAudits().reverse());
+  };
+
+  const handleConfirmDeleteAll = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setDeleteAllError("");
+    setIsDeletingAll(true);
+    try {
+      const savedUser = sessionStorage.getItem("skd_admin_session");
+      if (!savedUser) throw new Error("No active session.");
+      const parsed = JSON.parse(savedUser);
+      const validPass = `${parsed.username}123`;
+      if (deleteAllPassword !== validPass) {
+        throw new Error("Wrong password.");
+      }
+
+      if (deleteAllTarget === "bookings") {
+        await (db as any).clearAllBookings();
+      } else if (deleteAllTarget === "orders") {
+        await (db as any).clearAllOrders();
+      } else if (deleteAllTarget === "audit") {
+        await (db as any).clearAllAuditLogs();
+      } else if (deleteAllTarget === "security_audit") {
+        await (db as any).clearAllLoginAudits();
+      }
+
+      loadData();
+      setIsDeleteAllOpen(false);
+      setDeleteAllPassword("");
+      setDeleteAllTarget(null);
+    } catch (err: any) {
+      setDeleteAllError(err.message || "An error occurred.");
+    } finally {
+      setIsDeletingAll(false);
+    }
   };
 
   useEffect(() => {
@@ -394,6 +649,20 @@ export default function AdminPortal() {
     if (savedDays) {
       setDaysPast(parseInt(savedDays, 10));
     }
+
+    const handleUpdate = () => {
+      loadData();
+    };
+
+    window.addEventListener("storage", handleUpdate);
+    window.addEventListener("skd_settings_updated", handleUpdate);
+    window.addEventListener("skd_settings_draft_updated", handleUpdate);
+
+    return () => {
+      window.removeEventListener("storage", handleUpdate);
+      window.removeEventListener("skd_settings_updated", handleUpdate);
+      window.removeEventListener("skd_settings_draft_updated", handleUpdate);
+    };
   }, []);
 
   useEffect(() => {
@@ -401,42 +670,204 @@ export default function AdminPortal() {
   }, [activeTab]);
 
   useEffect(() => {
-    if (settings) {
-      setCmsHeroVideo("https://res.cloudinary.com/or5e9kak/video/upload/v1783783688/WhatsApp_Video_2026-07-11_at_20.57.19_c4tq0e.mp4");
-      setCmsTimings(settings.timings);
-      setCmsPhone(settings.contactPhone);
-      setCmsEmail(settings.contactEmail);
-      setCmsAddress(settings.contactAddress);
-      setCmsDiscount(settings.discountPercent);
-      setWebExclusiveTextInput(settings.webExclusiveText || `Book a table online & get ${settings.discountPercent}% OFF your dining bill`);
-      setReservationPromoInput(settings.reservationPromoText || "Reserve your table through our website and receive 10% OFF on your final dining bill.");
+    const s = settingsDraft || settings;
+    if (s) {
+      setCmsHeroVideo(s.heroVideo || "https://res.cloudinary.com/or5e9kak/video/upload/v1783783688/WhatsApp_Video_2026-07-11_at_20.57.19_c4tq0e.mp4");
+      setCmsTimings(s.timings);
+      setCmsPhone(s.contactPhone);
+      setCmsEmail(s.contactEmail);
+      setCmsAddress(s.contactAddress);
+      setCmsDiscount(s.discountPercent);
+      setWebExclusiveTextInput(s.webExclusiveText || `Book a table online & get ${s.discountPercent}% OFF your dining bill`);
+      setReservationPromoInput(s.reservationPromoText || "Reserve your table through our website and receive 10% OFF on your final dining bill.");
+      setCmsInstagramUrl(s.instagramUrl || "");
+      setCmsFacebookUrl(s.facebookUrl || "");
+      setCmsZomatoUrl(s.zomatoUrl || "");
     }
-  }, [settings]);
+  }, [settingsDraft, settings]);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const getBrowserDetails = () => {
+    const ua = navigator.userAgent;
+    let browser = "Other";
+    if (ua.includes("Firefox")) browser = "Firefox";
+    else if (ua.includes("Chrome")) browser = "Chrome";
+    else if (ua.includes("Safari")) browser = "Safari";
+    else if (ua.includes("Edge")) browser = "Edge";
+    else if (ua.includes("MSIE") || ua.includes("Trident")) browser = "IE";
+    
+    let deviceType = "Desktop";
+    if (/Mobi|Android|iPhone|iPad/i.test(ua)) {
+      deviceType = "Mobile";
+    } else if (/Tablet|iPad/i.test(ua)) {
+      deviceType = "Tablet";
+    }
+    return { browser, deviceType, userAgent: ua };
+  };
+
+  const getPublicIp = async (): Promise<string> => {
+    try {
+      const res = await fetch("https://api.ipify.org?format=json");
+      const data = await res.json();
+      return data.ip || "Unknown";
+    } catch (e) {
+      console.error("Failed to resolve public IP:", e);
+      return "Unknown";
+    }
+  };
+
+  const captureLoginSnapshot = async (attemptId: string): Promise<{ url: string | null; status: "SUCCESS" | "PERMISSION_DENIED" | "NO_IMAGE" }> => {
+    if (!enableSnapshot) {
+      return { url: null, status: "NO_IMAGE" };
+    }
+    return new Promise<{ url: string | null; status: "SUCCESS" | "PERMISSION_DENIED" | "NO_IMAGE" }>((resolve) => {
+      const globalTimeout = setTimeout(() => {
+        console.warn("Global snapshot capture timeout reached.");
+        resolve({ url: null, status: "PERMISSION_DENIED" });
+      }, 5000);
+
+      (async () => {
+        try {
+          if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            resolve({ url: null, status: "PERMISSION_DENIED" });
+            return;
+          }
+
+          const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240 } });
+          const video = document.createElement("video");
+          video.muted = true;
+          video.playsInline = true;
+          video.srcObject = stream;
+          video.style.position = "fixed";
+          video.style.top = "-9999px";
+          video.style.left = "-9999px";
+          video.style.width = "320px";
+          video.style.height = "240px";
+          document.body.appendChild(video);
+
+          await video.play();
+
+          const canvas = document.createElement("canvas");
+          canvas.width = 320;
+          canvas.height = 240;
+          const ctx = canvas.getContext("2d");
+          if (ctx) {
+            ctx.drawImage(video, 0, 0, 320, 240);
+          }
+
+          stream.getTracks().forEach(track => track.stop());
+          if (video.parentNode) {
+            document.body.removeChild(video);
+          }
+
+          const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
+          const resBlob = await fetch(dataUrl);
+          const blob = await resBlob.blob();
+
+          const storageRef = ref(storage, `security/login-audit/${attemptId}.jpg`);
+          await uploadBytes(storageRef, blob);
+          const downloadUrl = await getDownloadURL(storageRef);
+
+          clearTimeout(globalTimeout);
+          resolve({ url: downloadUrl, status: "SUCCESS" });
+        } catch (err: any) {
+          console.warn("Snapshot capture failed inside runner:", err);
+          clearTimeout(globalTimeout);
+          resolve({ url: null, status: "PERMISSION_DENIED" });
+        }
+      })();
+    });
+  };
+
+  const checkRetentionPolicy = (audits: LoginAudit[]) => {
+    const cutoff = Date.now() - 60 * 24 * 60 * 60 * 1000;
+    const eligibleCount = audits.filter(a => new Date(a.createdAt).getTime() < cutoff).length;
+    if (eligibleCount > 0) {
+      setRetentionPopupOpen(true);
+    }
+  };
+
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError("");
 
+    const username = usernameInput.trim();
+    const password = passwordInput;
+
+    const rateCheck = (() => {
+      const failedAttempts = JSON.parse(localStorage.getItem("skd_failed_logins") || "[]") as number[];
+      const now = Date.now();
+      const active = failedAttempts.filter(t => now - t < 5 * 60 * 1000);
+      localStorage.setItem("skd_failed_logins", JSON.stringify(active));
+      if (active.length >= 5) {
+        return { blocked: true, timeLeft: Math.ceil((5 * 60 * 1000 - (now - active[0])) / 1000) };
+      }
+      return { blocked: false };
+    })();
+
+    if (rateCheck.blocked) {
+      setAuthError(`Too many failed login attempts. Please wait ${rateCheck.timeLeft} seconds.`);
+      return;
+    }
+
     const matched = defaultAdminUsers.find(
-      (u) => u.username === usernameInput.toLowerCase()
+      (u) => u.username === username.toLowerCase()
     );
 
-    if (!matched) {
-      setAuthError("Invalid username.");
-      return;
+    const isValid = matched && (password === `${matched.username}123`);
+
+    // 1. Resolve IP and create login attempt log immediately
+    const attemptId = `attempt-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    const { browser, deviceType, userAgent } = getBrowserDetails();
+    const ipAddress = await getPublicIp();
+
+    let savedAudit: any = null;
+    try {
+      savedAudit = await (db as any).addLoginAudit({
+        loginAttemptId: attemptId,
+        timestamp: new Date().toISOString(),
+        result: isValid ? "SUCCESS" : "FAILED",
+        ipAddress,
+        browser,
+        deviceType,
+        userAgent,
+        snapshotUrl: null,
+        adminUid: matched ? matched.username : undefined,
+        createdAt: new Date().toISOString(),
+        snapshotStatus: enableSnapshot ? "NO_IMAGE" : "NO_IMAGE"
+      });
+    } catch (err) {
+      console.error("Failed to write initial login log:", err);
     }
 
-    const validPassword = `${matched.username}123`;
-    if (passwordInput !== validPassword) {
-      setAuthError("Invalid password.");
-      return;
+    if (!isValid) {
+      setAuthError(matched ? "Invalid password." : "Invalid username.");
+      const failedAttemptsList = JSON.parse(localStorage.getItem("skd_failed_logins") || "[]") as number[];
+      failedAttemptsList.push(Date.now());
+      localStorage.setItem("skd_failed_logins", JSON.stringify(failedAttemptsList));
+    } else {
+      setUser(matched);
+      sessionStorage.setItem("skd_admin_session", JSON.stringify(matched));
+      setUsernameInput("");
+      setPasswordInput("");
+      localStorage.removeItem("skd_failed_logins");
     }
 
-    setUser(matched);
-    sessionStorage.setItem("skd_admin_session", JSON.stringify(matched));
-    setUsernameInput("");
-    setPasswordInput("");
     loadData();
+
+    // 2. Perform background camera snapshot and update record in Firestore/LocalStorage
+    if (enableSnapshot && savedAudit) {
+      (async () => {
+        const snapResult = await captureLoginSnapshot(attemptId);
+        await (db as any).updateLoginAuditSnapshot(savedAudit.id, snapResult.url, snapResult.status);
+        loadData();
+      })().catch(err => console.error("Failed to update login snapshot:", err));
+    }
+
+    if (isValid) {
+      setTimeout(() => {
+        checkRetentionPolicy((db as any).getLoginAudits());
+      }, 800);
+    }
   };
 
   const handleLogout = () => {
@@ -449,7 +880,7 @@ export default function AdminPortal() {
     if (!user) return false;
     if (user.role === "Owner") return true;
     if (user.role === "Manager") {
-      return tab !== "homepage" && tab !== "promos" && tab !== "backups";
+      return tab !== "homepage" && tab !== "promos" && tab !== "backups" && tab !== "security_audit";
     }
     if (user.role === "Staff") {
       return tab === "bookings" || tab === "orders" || tab === "scanner" || tab === "dashboard";
@@ -501,14 +932,36 @@ export default function AdminPortal() {
   // ----------------------------------------------------
   // MENU EDITOR ACTIONS
   // ----------------------------------------------------
-  const handleToggleDishStock = (id: string, outOfStock: boolean) => {
-    db.updateDish(id, { outOfStock });
-    const dish = menu.find((d) => d.id === id);
-    (db as any).addAuditLog(
-      "Menu Stock Toggle",
-      `Marked "${dish?.title || id}" as ${outOfStock ? "Out of Stock" : "In Stock"}`
-    );
-    loadData();
+  const handleToggleDishStock = async (id: string, outOfStock: boolean) => {
+    if (updatingStockId) return; // Prevent rapid duplicate changes
+    setUpdatingStockId(id);
+    setStockMessage(null);
+
+    // Save previous value in case of failure
+    const originalDish = menu.find(d => d.id === id);
+    const originalOutOfStock = originalDish ? originalDish.outOfStock : false;
+
+    try {
+      await db.updateDish(id, { outOfStock });
+      const dish = menu.find((d) => d.id === id);
+      (db as any).addAuditLog(
+        "Menu Stock Toggle",
+        `Marked "${dish?.title || id}" as ${outOfStock ? "Out of Stock" : "In Stock"}`
+      );
+      setStockMessage({ text: "Stock status updated.", isError: false });
+    } catch (error) {
+      console.error("Failed to update stock status:", error);
+      // Revert local state and DB on failure
+      try {
+        await db.updateDish(id, { outOfStock: originalOutOfStock });
+      } catch (revertError) {
+        console.error("Revert failed:", revertError);
+      }
+      setStockMessage({ text: "Unable to update stock status. Please try again.", isError: true });
+    } finally {
+      setUpdatingStockId(null);
+      loadData();
+    }
   };
 
   const handleToggleDishVisibility = (id: string, hidden: boolean) => {
@@ -576,42 +1029,71 @@ export default function AdminPortal() {
     setIsDishAddMode(false);
   };
 
+  const handleConfirmSecureDelete = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!secureDeleteConfig) return;
+    setSecureDeleteError("");
+    setSecureDeleteIsVerifying(true);
+
+    try {
+      const currentUser = auth.currentUser;
+      if (currentUser && currentUser.email) {
+        const credential = EmailAuthProvider.credential(currentUser.email, secureDeletePassword);
+        await reauthenticateWithCredential(currentUser, credential);
+      } else {
+        const savedUser = sessionStorage.getItem("skd_admin_session");
+        if (!savedUser) {
+          throw new Error("No active admin session found.");
+        }
+        const parsed = JSON.parse(savedUser);
+        const validPassword = `${parsed.username}123`;
+        if (secureDeletePassword !== validPassword) {
+          throw new Error("Incorrect password. Nothing was deleted.");
+        }
+      }
+
+      setSecureDeleteIsVerifying(false);
+      setSecureDeleteIsDeleting(true);
+
+      const confirmResult = secureDeleteConfig.onConfirm();
+      if (confirmResult instanceof Promise) {
+        await confirmResult;
+      }
+
+      setSecureDeleteIsDeleting(false);
+      alert("Deleted successfully.");
+      setSecureDeleteConfig(null);
+      setSecureDeletePassword("");
+    } catch (error: any) {
+      console.error("Delete verification failed:", error);
+      setSecureDeleteIsVerifying(false);
+      setSecureDeleteIsDeleting(false);
+      if (error.code === "auth/wrong-password" || error.message?.includes("Incorrect password")) {
+        setSecureDeleteError("Incorrect password. Nothing was deleted.");
+      } else {
+        setSecureDeleteError(error.message || "Unable to delete this record. Please try again.");
+      }
+    }
+  };
+
   const handleDeleteDish = (id: string) => {
     const dish = menu.find((d) => d.id === id);
     if (!dish) return;
-    setDishToDelete(dish);
-    setDeleteUsername("");
-    setDeletePassword("");
-    setDeleteError("");
-  };
-
-  const handleConfirmDeleteDish = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!dishToDelete) return;
-
-    const matched = defaultAdminUsers.find(
-      (u) => u.username === deleteUsername.toLowerCase()
-    );
-
-    if (!matched) {
-      setDeleteError("Invalid admin username.");
-      return;
-    }
-
-    const validPassword = `${matched.username}123`;
-    if (deletePassword !== validPassword) {
-      setDeleteError("Invalid admin password.");
-      return;
-    }
-
-    const filtered = menu.filter((d) => d.id !== dishToDelete.id);
-    localStorage.setItem("skd_menu", JSON.stringify(filtered));
-    (db as any).addAuditLog(
-      "Menu Dish Deleted",
-      `Removed dish "${dishToDelete.title}" from local catalog (authorized by ${matched.name})`
-    );
-    loadData();
-    setDishToDelete(null);
+    setSecureDeleteConfig({
+      title: "Delete Menu Item",
+      itemInfo: `Menu Item: ${dish.title} (${dish.category})`,
+      onConfirm: () => {
+        const filtered = menu.filter((d) => d.id !== dish.id);
+        localStorage.setItem("skd_menu", JSON.stringify(filtered));
+        const savedUser = sessionStorage.getItem("skd_admin_session");
+        const adminName = savedUser ? JSON.parse(savedUser).name : "Admin";
+        (db as any).addAuditLog(
+          "Menu Dish Deleted",
+          `Removed dish "${dish.title}" from local catalog (authorized by ${adminName})`
+        );
+        loadData();
+      }
+    });
   };
 
   // ----------------------------------------------------
@@ -636,17 +1118,78 @@ export default function AdminPortal() {
 
   const handleDeleteGalleryItem = (id: string) => {
     const item = gallery.find((g) => g.id === id);
-    if (confirm("Delete this photo?")) {
-      db.deleteImage(id);
-      (db as any).addAuditLog(
-        "Gallery CMS Update",
-        `Removed photo "${item?.title || id}" from gallery`
-      );
-      loadData();
-    }
+    setSecureDeleteConfig({
+      title: "Delete Gallery Photo",
+      itemInfo: `Photo: ${item?.title || id}`,
+      onConfirm: () => {
+        db.deleteImage(id);
+        (db as any).addAuditLog(
+          "Gallery CMS Update",
+          `Removed photo "${item?.title || id}" from gallery`
+        );
+        loadData();
+      }
+    });
   };
 
 
+
+function extractIdFromQR(decodedText: string): string {
+  if (!decodedText) return "";
+  const trimmed = decodedText.trim();
+
+  // 1. Try parsing as JSON
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed) {
+      if (parsed.voucherId) return String(parsed.voucherId).trim();
+      if (parsed.bookingId) return String(parsed.bookingId).trim();
+      if (parsed.orderId) return String(parsed.orderId).trim();
+      if (parsed.id) return String(parsed.id).trim();
+    }
+  } catch (e) {
+    // Not JSON
+  }
+
+  // 2. Try parsing as URL
+  try {
+    if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+      const url = new URL(trimmed);
+      const idParam = url.searchParams.get("token") || url.searchParams.get("code") || url.searchParams.get("id") || url.searchParams.get("voucherId") || url.searchParams.get("bookingId");
+      if (idParam) return idParam.trim();
+      const pathSegments = url.pathname.split("/").filter(Boolean);
+      if (pathSegments.length > 0) {
+        const lastSegment = pathSegments[pathSegments.length - 1];
+        if (lastSegment) return lastSegment.trim();
+      }
+    }
+  } catch (e) {
+    // Not a valid URL
+  }
+
+  // 3. Regex matching for standard formats
+  const giftCouponMatch = trimmed.match(/(SKF-GFT-[A-Z0-9]+)/i);
+  if (giftCouponMatch) {
+    return giftCouponMatch[1];
+  }
+
+  const orderMatch = trimmed.match(/(ORD-\d{4})/i);
+  if (orderMatch) {
+    return orderMatch[1];
+  }
+
+  const bookingMatch = trimmed.match(/(r-\d{4})/i);
+  if (bookingMatch) {
+    return bookingMatch[1];
+  }
+
+  const voucherMatch = trimmed.match(/(RSD-REWARD-[A-Z0-9]+-\d+)/i);
+  if (voucherMatch) {
+    return voucherMatch[1];
+  }
+
+  return trimmed;
+}
 
   // ----------------------------------------------------
   // ----------------------------------------------------
@@ -656,26 +1199,80 @@ export default function AdminPortal() {
     setScanResult(null);
     if (!codeVal) return;
 
-    let rawCode = codeVal.trim();
-    let code = rawCode.toLowerCase();
+    const extractedId = extractIdFromQR(codeVal);
+    let code = extractedId.trim().toLowerCase();
 
     // 1. Check if this exact QR payload / code has already been scanned in scanned history log
     const scannedQRs: string[] = JSON.parse(localStorage.getItem("skd_scanned_qrs") || "[]");
-    const isAlreadyScannedInHistory = scannedQRs.includes(code) || scannedQRs.includes(rawCode);
+    const isAlreadyScannedInHistory = scannedQRs.includes(code) || scannedQRs.includes(extractedId.trim());
+
+    // 0. Check if this is a Gift Coupon code or secureToken
+    if (verificationMode === "coupon" || verificationMode === "all") {
+      const giftCoupons = (db as any).getGiftCoupons() as GiftCoupon[];
+      const couponMatch = giftCoupons.find((c) => 
+        c.secureToken.toLowerCase() === code || 
+        c.code.toLowerCase() === code ||
+        c.id.toLowerCase() === code ||
+        c.secureToken.toLowerCase() === codeVal.trim().toLowerCase() ||
+        c.code.toLowerCase() === codeVal.trim().toLowerCase()
+      );
+
+      if (couponMatch) {
+        if (couponMatch.status === "REDEEMED") {
+          playScannerBeep();
+          setScanResult({
+            success: false,
+            message: `⚠️ COUPON ALREADY REDEEMED! Coupon ${couponMatch.code} was redeemed on ${new Date(couponMatch.redeemedAt || "").toLocaleString()} and cannot be used again.`,
+            coupon: couponMatch
+          });
+          return;
+        }
+        
+        if (couponMatch.status === "EXPIRED") {
+          playScannerBeep();
+          setScanResult({
+            success: false,
+            message: `⚠️ COUPON EXPIRED! Coupon ${couponMatch.code} expired on ${new Date(couponMatch.expiresAt).toLocaleDateString("en-IN")}.`,
+            coupon: couponMatch
+          });
+          return;
+        }
+        
+        if (couponMatch.status === "CANCELLED") {
+          playScannerBeep();
+          setScanResult({
+            success: false,
+            message: `⚠️ COUPON CANCELLED! Coupon ${couponMatch.code} has been cancelled by administration.`,
+            coupon: couponMatch
+          });
+          return;
+        }
+
+        playScannerBeep();
+        setScanResult({
+          success: true,
+          message: `✓ VALID GIFT COUPON! Coupon ${couponMatch.code} is active. Please enter the current bill amount below to verify eligibility.`,
+          coupon: couponMatch
+        });
+        setCurrentBillAmount("");
+        setIsCouponEligible(null);
+        setCouponEligibilityError("");
+        setIsConfirmingRedemption(false);
+        return;
+      }
+    }
 
     // If it's a 4-digit number and we are looking for a booking, prepend 'r-'
     if (/^\d{4}$/.test(code) && (verificationMode === "booking" || verificationMode === "all")) {
       code = `r-${code}`;
-    } else {
-      // Extract booking ID (r-XXXX) if present in URL/text
-      const bookingMatchRegex = code.match(/(r-\d{4})/i);
-      if (bookingMatchRegex) {
-        code = bookingMatchRegex[1].toLowerCase();
-      }
+    }
+
+    // If it's a 4-digit number and we are looking for an order, prepend 'ORD-'
+    if (/^\d{4}$/.test(code) && (verificationMode === "order" || verificationMode === "all")) {
+      code = `ord-${code}`;
     }
 
     if (verificationMode === "booking" || verificationMode === "all") {
-      // Check if it's a booking reservation (starts with 'r-' or matches a booking ID)
       const bookingMatch = bookings.find((b) => b.id.toLowerCase() === code);
       if (bookingMatch) {
         // Enforce single-use: Check if status is already Arrived, Completed, or Cancelled, OR present in scanned history
@@ -713,7 +1310,7 @@ export default function AdminPortal() {
           db.updateBookingStatus(bookingMatch.id, "Arrived");
 
           // Save to scanned history
-          const updatedHistory = Array.from(new Set([...scannedQRs, code, rawCode, bookingMatch.id.toLowerCase()]));
+          const updatedHistory = Array.from(new Set([...scannedQRs, code, bookingMatch.id.toLowerCase()]));
           localStorage.setItem("skd_scanned_qrs", JSON.stringify(updatedHistory));
 
           (db as any).addAuditLog(
@@ -740,7 +1337,7 @@ export default function AdminPortal() {
           playScannerBeep();
           setScanResult({
             success: true,
-            message: `Website Booking Verified! Table is reserved for ${bookingMatch.name} (Table: ${bookingMatch.tableNumber || "Unassigned"}). Checked in successfully.`,
+            message: `✓ Reservation #${bookingMatch.id} Verified! Table is reserved for ${bookingMatch.name} (Table: ${bookingMatch.tableNumber || "Unassigned"}). Checked in successfully.`,
             booking: { ...bookingMatch, status: "Arrived" },
             voucher: generatedVoucher
           });
@@ -750,32 +1347,12 @@ export default function AdminPortal() {
           setScanResult({ success: false, message: err.message || "Reservation check-in error." });
         }
         return;
-      } else if (verificationMode === "booking") {
-        setScanResult({
-          success: false,
-          message: "No website booking matches the entered Registration ID. Please verify the ticket."
-        });
-        return;
       }
     }
 
     if (verificationMode === "voucher" || verificationMode === "all") {
-      // Fallback: Voucher Validation
-      try {
-        const match = vouchers.find((v) => v.id.toLowerCase() === code);
-        if (!match) {
-          if (isAlreadyScannedInHistory) {
-            playScannerBeep();
-            setScanResult({
-              success: false,
-              message: `⚠️ QR CODE ALREADY SCANNED! This QR code (${rawCode}) was previously scanned and cannot be reused.`
-            });
-            return;
-          }
-          setScanResult({ success: false, message: "Invalid code. No active voucher matches this code." });
-          return;
-        }
-
+      const match = vouchers.find((v) => v.id.toLowerCase() === code);
+      if (match) {
         if (match.status === "REDEEMED" || isAlreadyScannedInHistory || scannedQRs.includes(match.id.toLowerCase())) {
           playScannerBeep();
           setScanResult({
@@ -786,19 +1363,105 @@ export default function AdminPortal() {
           return;
         }
 
-        const redeemed = (db as any).redeemVoucher(match.id);
+        if (match.expiresAt && new Date(match.expiresAt) < new Date()) {
+          playScannerBeep();
+          setScanResult({
+            success: false,
+            message: `⚠️ VOUCHER EXPIRED! Voucher ${match.id} has expired (Expiry: ${new Date(match.expiresAt).toLocaleDateString()}).`,
+            voucher: match
+          });
+          return;
+        }
 
-        // Save to scanned history
-        const updatedHistory = Array.from(new Set([...scannedQRs, code, rawCode, match.id.toLowerCase()]));
-        localStorage.setItem("skd_scanned_qrs", JSON.stringify(updatedHistory));
+        try {
+          const redeemed = (db as any).redeemVoucher(match.id);
+
+          // Save to scanned history
+          const updatedHistory = Array.from(new Set([...scannedQRs, code, match.id.toLowerCase()]));
+          localStorage.setItem("skd_scanned_qrs", JSON.stringify(updatedHistory));
+
+          playScannerBeep();
+          setScanResult({
+            success: true,
+            message: `✓ VOUCHER VERIFIED! Approved ${match.discountPercent}% Discount of Rs. ${(match.discountValue || 0).toFixed(0)} on Bill ${match.billNumber}.`,
+            voucher: redeemed
+          });
+          setScanInputCode("");
+          loadData();
+        } catch (err: any) {
+          setScanResult({ success: false, message: err.message || "Redemption processing error." });
+        }
+        return;
+      }
+    }
+
+    if (verificationMode === "order" || verificationMode === "all") {
+      const orderMatch = orders.find(
+        (o) =>
+          o.id.toLowerCase() === code ||
+          o.id.toLowerCase() === codeVal.trim().toLowerCase() ||
+          (o.reviewToken && o.reviewToken.toLowerCase() === code) ||
+          (o.reviewToken && o.reviewToken.toLowerCase() === codeVal.trim().toLowerCase())
+      );
+      if (orderMatch) {
+        if (orderMatch.status === "Delivered") {
+          playScannerBeep();
+          setScanResult({
+            success: false,
+            message: `⚠️ ORDER ALREADY DELIVERED! Order #${orderMatch.id} for ${orderMatch.customerName} has already been delivered.`,
+            order: orderMatch
+          });
+          return;
+        }
+
+        if (orderMatch.status === "Cancelled") {
+          playScannerBeep();
+          setScanResult({
+            success: false,
+            message: `⚠️ ORDER CANCELLED! Order #${orderMatch.id} for ${orderMatch.customerName} was cancelled.`,
+            order: orderMatch
+          });
+          return;
+        }
 
         playScannerBeep();
-        setScanResult({ success: true, message: `Success! Approved ${match.discountPercent}% Discount of Rs. ${(match.discountValue || 0).toFixed(0)} on Bill ${match.billNumber}.`, voucher: redeemed });
+        setScanResult({
+          success: true,
+          message: `✓ VALID ORDER FOUND! Order #${orderMatch.id} for ${orderMatch.customerName} is active (Status: ${orderMatch.status}). You can update its status below.`,
+          order: orderMatch
+        });
         setScanInputCode("");
-        loadData();
-      } catch (err: any) {
-        setScanResult({ success: false, message: err.message || "Redemption processing error." });
+        return;
       }
+    }
+
+    // If we get here, no match was found:
+    playScannerBeep();
+    if (verificationMode === "booking") {
+      setScanResult({
+        success: false,
+        message: "Invalid Booking. No website booking matches the entered Registration ID."
+      });
+    } else if (verificationMode === "voucher") {
+      setScanResult({
+        success: false,
+        message: "Invalid Voucher. No active voucher matches this code."
+      });
+    } else if (verificationMode === "coupon") {
+      setScanResult({
+        success: false,
+        message: "Invalid Coupon. No active gift coupon matches this code."
+      });
+    } else if (verificationMode === "order") {
+      setScanResult({
+        success: false,
+        message: "Invalid Order. No active order matches the entered Order ID."
+      });
+    } else {
+      setScanResult({
+        success: false,
+        message: "Invalid ID. No booking reservation, voucher, coupon, or order matches this code."
+      });
     }
   };
 
@@ -811,17 +1474,66 @@ export default function AdminPortal() {
   // ----------------------------------------------------
   // WHATSAPP ORDER ACTIONS
   // ----------------------------------------------------
-  const handleUpdateOrderStatus = (id: string, newStatus: WhatsAppOrder["status"]) => {
-    (db as any).updateOrderStatus(id, newStatus);
-    loadData();
+  const handleUpdateOrderStatus = async (id: string, newStatus: WhatsAppOrder["status"]) => {
+    const order = orders.find(o => o.id === id);
+    if (order && order.status === "Delivered") {
+      alert("This order is already marked as Delivered and its status is locked.");
+      return;
+    }
+    try {
+      await (db as any).updateOrderStatus(id, newStatus);
+      loadData();
+    } catch (e) {
+      console.error(e);
+      alert("Unable to update order status. Please try again.");
+    }
+  };
+
+  const handleConfirmDelivered = async () => {
+    if (!orderToMarkDelivered) return;
+    const targetOrder = orderToMarkDelivered;
+    setOrderToMarkDelivered(null);
+    setIsDeliveringOrderId(targetOrder.id);
+
+    try {
+      const reviewToken = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+      await (db as any).updateOrderStatus(targetOrder.id, "Delivered", reviewToken);
+      
+      const norm = normalizePhone(targetOrder.phone);
+      const cleanPhone = `91${norm}`;
+      const reviewLink = `${window.location.origin}/review?token=${reviewToken}`;
+      const msg = `Hello ${targetOrder.customerName} 👋\n\nYour order ${targetOrder.id} from Sri Krishna Family Dhaba has been successfully delivered. ✅\n\nThank you for ordering with us! 🙏\n\nWe would love to hear about your experience.\n\nPlease leave us a quick review using the link below:\n\n${reviewLink}\n\nYour feedback helps us serve you better.\n\n— Sri Krishna Family Dhaba`;
+      const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`;
+      window.open(waUrl, "_blank");
+      
+      // Update scanResult state if this order was currently scanned/verified
+      if (scanResult && scanResult.order && scanResult.order.id === targetOrder.id) {
+        setScanResult({
+          success: true,
+          message: `✓ Order #${targetOrder.id} successfully marked as Delivered! WhatsApp confirmation message has been prepared.`,
+          order: { ...targetOrder, status: "Delivered", reviewToken }
+        });
+      }
+
+      loadData();
+    } catch (error) {
+      console.error("Firebase update failed for Delivered order:", error);
+      alert("Unable to mark this order as delivered. Please try again.");
+    } finally {
+      setIsDeliveringOrderId(null);
+    }
   };
 
   const handleDeleteOrder = (id: string) => {
-    if (confirm(`Remove order record ${id} from ledger?`)) {
-      (db as any).deleteOrder(id);
-      (db as any).addAuditLog("Order Ledger Updated", `Deleted order ${id} log`);
-      loadData();
-    }
+    setSecureDeleteConfig({
+      title: "Delete WhatsApp Order",
+      itemInfo: `Order ID: ${id}`,
+      onConfirm: () => {
+        (db as any).deleteOrder(id);
+        (db as any).addAuditLog("Order Ledger Updated", `Deleted order ${id} log`);
+        loadData();
+      }
+    });
   };
 
   const handlePrintOrderBill = (o: WhatsAppOrder) => {
@@ -890,10 +1602,10 @@ export default function AdminPortal() {
           </div>
 
           <div class="meta">
-            <div><span><strong>ORDER NO:</strong> ${o.id}</span> <span><strong>STATUS:</strong> ${o.status.toUpperCase()}</span></div>
+            <div><span><strong>ORDER NO:</strong> ${o.id}</span></div>
             <div><span><strong>DATE:</strong> ${new Date(o.createdAt).toLocaleDateString()}</span> <span><strong>TIME:</strong> ${new Date(o.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span></div>
             <div style="margin-top: 4px;"><span><strong>CUSTOMER:</strong> ${o.customerName}</span></div>
-            <div><span><strong>PHONE:</strong> +91 ${o.phone}</span></div>
+            <div><span><strong>PHONE:</strong> ${formatPhone(o.phone)}</span></div>
             ${o.address ? `<div style="margin-top: 2px;"><span><strong>ADDRESS:</strong> ${o.address}</span></div>` : ""}
           </div>
 
@@ -941,21 +1653,151 @@ export default function AdminPortal() {
   // ----------------------------------------------------
   // HOMEPAGE & PROMOS CMS ACTIONS
   // ----------------------------------------------------
-  const handleSaveCMS = (e: React.FormEvent) => {
-    e.preventDefault();
-    db.updateSettings({
-      timings: cmsTimings,
-      contactPhone: cmsPhone,
-      contactEmail: cmsEmail,
-      contactAddress: cmsAddress,
-      discountPercent: cmsDiscount
-    });
-    (db as any).addAuditLog(
-      "CMS Settings Updated",
-      `Modified default address, operational timings, support email, and discount values.`
+  const hasUnsavedCMSChanges = () => {
+    const s = settingsDraft || settings;
+    if (!s) return false;
+    return (
+      cmsHeroVideo !== (s.heroVideo || "https://res.cloudinary.com/or5e9kak/video/upload/v1783783688/WhatsApp_Video_2026-07-11_at_20.57.19_c4tq0e.mp4") ||
+      cmsTimings !== s.timings ||
+      cmsPhone !== s.contactPhone ||
+      cmsEmail !== s.contactEmail ||
+      cmsAddress !== s.contactAddress ||
+      cmsDiscount !== s.discountPercent ||
+      cmsInstagramUrl !== (s.instagramUrl || "") ||
+      cmsFacebookUrl !== (s.facebookUrl || "") ||
+      cmsZomatoUrl !== (s.zomatoUrl || "")
     );
-    loadData();
-    alert("Website configurations updated successfully!");
+  };
+
+  const hasUnpublishedChanges = useMemo(() => {
+    const pub = settings;
+    const draft = settingsDraft;
+    if (!pub || !draft) return false;
+    return (
+      draft.heroVideo !== pub.heroVideo ||
+      draft.timings !== pub.timings ||
+      draft.contactPhone !== pub.contactPhone ||
+      draft.contactEmail !== pub.contactEmail ||
+      draft.contactAddress !== pub.contactAddress ||
+      draft.discountPercent !== pub.discountPercent ||
+      draft.instagramUrl !== pub.instagramUrl ||
+      draft.facebookUrl !== pub.facebookUrl ||
+      draft.zomatoUrl !== pub.zomatoUrl
+    );
+  }, [settings, settingsDraft, cmsInstagramUrl, cmsFacebookUrl, cmsZomatoUrl]);
+
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (activeTab === "homepage" && hasUnsavedCMSChanges()) {
+        e.preventDefault();
+        e.returnValue = "You have unsaved homepage changes. Leave without saving?";
+        return e.returnValue;
+      }
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [activeTab, cmsHeroVideo, cmsTimings, cmsPhone, cmsEmail, cmsAddress, cmsDiscount, settingsDraft, settings, cmsInstagramUrl, cmsFacebookUrl, cmsZomatoUrl]);
+
+  const validateCMSDraft = (): boolean => {
+    if (!cmsHeroVideo) {
+      alert("Hero Video URL is required.");
+      return false;
+    }
+    try {
+      new URL(cmsHeroVideo);
+    } catch (_) {
+      alert("Please enter a valid Hero Video URL (starting with http:// or https://).");
+      return false;
+    }
+
+    if (!cmsTimings.trim()) {
+      alert("Restaurant Opening Hours are required.");
+      return false;
+    }
+
+    if (!cmsPhone.trim()) {
+      alert("Contact Phone Number is required.");
+      return false;
+    }
+    if (!/^\+?[0-9\s\-()]{7,20}$/.test(cmsPhone.trim())) {
+      alert("Please enter a valid Contact Phone Number.");
+      return false;
+    }
+
+    if (!cmsEmail.trim()) {
+      alert("Support Email Address is required.");
+      return false;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cmsEmail.trim())) {
+      alert("Please enter a valid Support Email Address.");
+      return false;
+    }
+
+    if (!cmsAddress.trim()) {
+      alert("Restaurant Physical Address is required.");
+      return false;
+    }
+
+    return true;
+  };
+
+  const handleSaveCMSDraft = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!validateCMSDraft()) return;
+
+    try {
+      await db.updateSettingsDraft({
+        heroVideo: cmsHeroVideo,
+        timings: cmsTimings,
+        contactPhone: cmsPhone,
+        contactEmail: cmsEmail,
+        contactAddress: cmsAddress,
+        discountPercent: cmsDiscount,
+        instagramUrl: cmsInstagramUrl,
+        facebookUrl: cmsFacebookUrl,
+        zomatoUrl: cmsZomatoUrl
+      });
+      (db as any).addAuditLog(
+        "CMS Draft Saved",
+        `Saved homepage configuration draft.`
+      );
+      loadData();
+      alert("Draft saved successfully.");
+    } catch (err) {
+      console.error("Failed to save draft:", err);
+      alert("Unable to save homepage configuration draft. Please try again.");
+    }
+  };
+
+  const handlePublishCMS = async () => {
+    if (!validateCMSDraft()) return;
+
+    try {
+      await db.updateSettingsDraft({
+        heroVideo: cmsHeroVideo,
+        timings: cmsTimings,
+        contactPhone: cmsPhone,
+        contactEmail: cmsEmail,
+        contactAddress: cmsAddress,
+        discountPercent: cmsDiscount,
+        instagramUrl: cmsInstagramUrl,
+        facebookUrl: cmsFacebookUrl,
+        zomatoUrl: cmsZomatoUrl
+      });
+
+      await db.publishSettings();
+
+      (db as any).addAuditLog(
+        "CMS Settings Published",
+        `Published homepage changes to the live website.`
+      );
+      loadData();
+      alert("Homepage changes published successfully.");
+      setIsPreviewMode(false);
+    } catch (err) {
+      console.error("Failed to publish homepage changes:", err);
+      alert("Unable to publish homepage changes. Please try again.");
+    }
   };
 
   // ----------------------------------------------------
@@ -990,19 +1832,92 @@ export default function AdminPortal() {
     loadData();
   };
 
+  const handleDeleteReview = (id: string, reviewerName: string) => {
+    setSecureDeleteConfig({
+      title: "Delete Testimonial/Review",
+      itemInfo: `Review from ${reviewerName}. This will permanently remove it from the database and website.`,
+      onConfirm: () => {
+        (db as any).deleteReview(id);
+        loadData();
+      }
+    });
+  };
+
+  const handleDeleteAllCustomers = () => {
+    setSecureDeleteConfig({
+      title: "Purge Customer Database",
+      itemInfo: "ALL customer profiles, booking reservations, WhatsApp orders, and loyalty vouchers from the database. This action is irreversible.",
+      onConfirm: async () => {
+        await (db as any).clearAllCustomers();
+        setSelectedCustomers([]);
+        loadData();
+      }
+    });
+  };
+
+  const handleClearAllCoupons = () => {
+    setSecureDeleteConfig({
+      title: "Purge Gift Coupon Database",
+      itemInfo: "ALL generated gift coupons from the database. This action is irreversible.",
+      onConfirm: async () => {
+        await (db as any).clearAllGiftCoupons();
+        loadData();
+      }
+    });
+  };
+
   // ----------------------------------------------------
   // CUSTOMER DATABASE ACTIONS
   // ----------------------------------------------------
   const handleDeleteCustomers = (phones: string[]) => {
     if (phones.length === 0) return;
-    const confirmMessage = phones.length === 1 
-      ? `Are you sure you want to delete this customer profile and all their associated bookings, orders, and vouchers?`
-      : `Are you sure you want to delete the selected ${phones.length} customer profiles and all their associated bookings, orders, and vouchers?`;
-      
-    if (confirm(confirmMessage)) {
-      (db as any).deleteCustomers(phones);
-      setSelectedCustomers(prev => prev.filter(p => !phones.includes(p)));
+    
+    const names = phones.map(p => {
+      const c = customerDatabase.find(cust => cust.phone === p);
+      return c ? `${c.name} (+91 ${p})` : `+91 ${p}`;
+    }).join(", ");
+
+    setSecureDeleteConfig({
+      title: "Delete Customer Profile(s)",
+      itemInfo: `Customer Profile(s): ${names}. This will permanently remove all associated bookings, orders, and vouchers.`,
+      onConfirm: () => {
+        (db as any).deleteCustomers(phones);
+        setSelectedCustomers(prev => prev.filter(p => !phones.includes(p)));
+        loadData();
+      }
+    });
+  };
+
+  const handleIpClick = async (ip: string) => {
+    try {
+      const res = await fetch(`https://ipapi.co/${ip}/json/`);
+      const data = await res.json();
+      if (data.latitude && data.longitude) {
+        window.open(`https://www.google.com/maps?q=${data.latitude},${data.longitude}`, "_blank");
+      } else {
+        window.open(`https://www.google.com/maps/search/?api=1&query=${ip}`, "_blank");
+      }
+    } catch (e) {
+      console.warn("Failed to geolocate IP coordinates via api:", e);
+      window.open(`https://www.google.com/maps/search/?api=1&query=${ip}`, "_blank");
+    }
+  };
+
+  const handleDeleteLoginAudit = async (audit: LoginAudit) => {
+    try {
+      if (audit.snapshotUrl && audit.snapshotUrl.includes("security/login-audit")) {
+        try {
+          const imageRef = ref(storage, `security/login-audit/${audit.loginAttemptId}.jpg`);
+          await deleteObject(imageRef);
+        } catch (storageErr) {
+          console.warn("Storage deletion failed/already removed:", storageErr);
+        }
+      }
+      await (db as any).deleteLoginAudit(audit.id);
       loadData();
+    } catch (err) {
+      console.error("Failed to delete login audit record:", err);
+      throw err;
     }
   };
 
@@ -1187,15 +2102,39 @@ export default function AdminPortal() {
     }
   };
 
+function normalizePhone(phoneStr: string): string {
+  if (!phoneStr) return "";
+  let cleaned = phoneStr.trim().replace(/[\s\-\+]/g, "");
+  if (cleaned.length === 12 && cleaned.startsWith("91")) {
+    cleaned = cleaned.substring(2);
+  }
+  return cleaned;
+}
+
+function formatPhone(phoneStr: string): string {
+  if (!phoneStr) return "";
+  const normalized = normalizePhone(phoneStr);
+  return `+91 ${normalized}`;
+}
+
   // ----------------------------------------------------
   // DYNAMIC COMPUTATIONS
   // ----------------------------------------------------
   const analytics = useMemo(() => {
     const visits = parseInt(localStorage.getItem("skd_visits") || "120", 10);
     const phoneMap = new Map<string, number>();
-    bookings.forEach((b) => phoneMap.set(b.phone, (phoneMap.get(b.phone) || 0) + 1));
-    orders.forEach((o) => phoneMap.set(o.phone, (phoneMap.get(o.phone) || 0) + 1));
-    vouchers.forEach((v) => phoneMap.set(v.phone, (phoneMap.get(v.phone) || 0) + 1));
+    bookings.forEach((b) => {
+      const norm = normalizePhone(b.phone);
+      if (norm) phoneMap.set(norm, (phoneMap.get(norm) || 0) + 1);
+    });
+    orders.forEach((o) => {
+      const norm = normalizePhone(o.phone);
+      if (norm) phoneMap.set(norm, (phoneMap.get(norm) || 0) + 1);
+    });
+    vouchers.forEach((v) => {
+      const norm = normalizePhone(v.phone);
+      if (norm) phoneMap.set(norm, (phoneMap.get(norm) || 0) + 1);
+    });
 
     const totalCustomers = phoneMap.size;
     let returningCustomers = 0;
@@ -1209,7 +2148,10 @@ export default function AdminPortal() {
     return {
       visits,
       totalBookings: bookings.length,
-      todayBookings: bookings.filter((b) => b.date === new Date().toISOString().split("T")[0]).length,
+      todayBookings: bookings.filter((b) => {
+        const todayKolkata = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Kolkata' });
+        return b.date === todayKolkata && (b.status === "Approved" || b.status === "Arrived" || b.status === "Completed");
+      }).length,
       activeVouchers,
       verifiedVouchers,
       totalOrders: orders.length,
@@ -1231,32 +2173,37 @@ export default function AdminPortal() {
     const profileMap = new Map<string, { name: string; phone: string; visits: number; bookingsCount: number; ordersCount: number; spend: number }>();
 
     bookings.forEach((b) => {
-      const entry = profileMap.get(b.phone) || { name: b.name, phone: b.phone, visits: 0, bookingsCount: 0, ordersCount: 0, spend: 0 };
+      const normPhone = normalizePhone(b.phone);
+      if (!normPhone) return;
+      const entry = profileMap.get(normPhone) || { name: b.name, phone: normPhone, visits: 0, bookingsCount: 0, ordersCount: 0, spend: 0 };
       entry.visits++;
       entry.bookingsCount++;
-      // Approximate billing spend based on occasion / guests
       if (b.status === "Completed") {
         entry.spend += b.guests * 300;
       }
-      profileMap.set(b.phone, entry);
+      profileMap.set(normPhone, entry);
     });
 
     orders.forEach((o) => {
-      const entry = profileMap.get(o.phone) || { name: o.customerName, phone: o.phone, visits: 0, bookingsCount: 0, ordersCount: 0, spend: 0 };
+      const normPhone = normalizePhone(o.phone);
+      if (!normPhone) return;
+      const entry = profileMap.get(normPhone) || { name: o.customerName, phone: normPhone, visits: 0, bookingsCount: 0, ordersCount: 0, spend: 0 };
       entry.visits++;
       entry.ordersCount++;
       if (o.status === "Delivered") {
         entry.spend += o.finalAmount;
       }
-      profileMap.set(o.phone, entry);
+      profileMap.set(normPhone, entry);
     });
 
     vouchers.forEach((v) => {
-      const entry = profileMap.get(v.phone) || { name: `Guest Phone: ${v.phone.substring(0, 5)}...`, phone: v.phone, visits: 0, bookingsCount: 0, ordersCount: 0, spend: 0 };
+      const normPhone = normalizePhone(v.phone);
+      if (!normPhone) return;
+      const entry = profileMap.get(normPhone) || { name: `Guest Phone: ${normPhone.substring(0, 5)}...`, phone: normPhone, visits: 0, bookingsCount: 0, ordersCount: 0, spend: 0 };
       if (v.status === "REDEEMED") {
         entry.spend += v.finalAmount;
       }
-      profileMap.set(v.phone, entry);
+      profileMap.set(normPhone, entry);
     });
 
     const list = Array.from(profileMap.values());
@@ -1480,6 +2427,26 @@ export default function AdminPortal() {
               </div>
             </div>
 
+            {/* Security & Privacy Notice */}
+            <div className="border border-brand-gold/15 bg-brand-dark/30 rounded-2xl p-4 text-[10px] text-brand-bg/50 leading-relaxed font-semibold space-y-2">
+              <div className="flex items-center gap-2 text-brand-gold">
+                <ShieldAlert size={14} className="stroke-[2.5]" />
+                <span className="font-display font-black uppercase tracking-widest text-[9px]">Security & Privacy Consent</span>
+              </div>
+              <p>
+                To maintain console integrity, login attempts record public IP, timestamps, browser, and device metrics.
+              </p>
+              <label className="flex items-start gap-2.5 text-white hover:text-brand-gold cursor-pointer select-none transition-colors mt-2">
+                <input
+                  type="checkbox"
+                  checked={enableSnapshot}
+                  onChange={(e) => setEnableSnapshot(e.target.checked)}
+                  className="rounded border-brand-gold/30 text-brand-gold focus:ring-brand-gold cursor-pointer shrink-0 mt-0.5"
+                />
+                <span>Enable browser security snapshot (uses camera to verify authority, immediately terminates after single capture)</span>
+              </label>
+            </div>
+
             <button
               type="submit"
               className="w-full py-3.5 bg-brand-gold text-brand-dark hover:bg-brand-accent hover:text-white rounded-xl text-xs font-black tracking-widest uppercase transition-all duration-300 flex items-center justify-center gap-2 shadow-lg cursor-pointer"
@@ -1500,6 +2467,152 @@ export default function AdminPortal() {
   }
 
   // CORE DASHBOARD PANEL
+  if (isPreviewMode) {
+    const draftData: RestaurantSettings = {
+      discountPercent: cmsDiscount,
+      whatsappNumber: settings?.whatsappNumber || "+919032292421",
+      maxGuestsPerBooking: settings?.maxGuestsPerBooking || 30,
+      maxReservationsPerSlot: settings?.maxReservationsPerSlot || 5,
+      advanceBookingDays: settings?.advanceBookingDays || 30,
+      timings: cmsTimings,
+      holidayClosures: settings?.holidayClosures || [],
+      contactEmail: cmsEmail,
+      contactPhone: cmsPhone,
+      contactAddress: cmsAddress,
+      googleMapsEmbedUrl: settings?.googleMapsEmbedUrl || "",
+      showWebExclusiveBar: settings?.showWebExclusiveBar ?? true,
+      showMenuPromo: settings?.showMenuPromo ?? true,
+      webExclusiveText: webExclusiveTextInput || "",
+      reservationPromoText: reservationPromoInput || "",
+      heroVideo: cmsHeroVideo
+    };
+
+    return (
+      <div className="fixed inset-0 bg-brand-dark z-50 flex flex-col overflow-hidden">
+        {/* Preview Control Bar */}
+        <div className="bg-brand-dark/95 border-b border-brand-gold/20 px-6 py-4 flex flex-wrap justify-between items-center gap-4">
+          <div className="flex items-center gap-3">
+            <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-ping" />
+            <h1 className="font-display font-black text-sm text-brand-gold uppercase tracking-wider">
+              DRAFT PREVIEW MODE
+            </h1>
+          </div>
+          
+          {/* Viewport Selectors */}
+          <div className="flex items-center gap-2 bg-brand-bg/10 rounded-xl p-1 border border-white/10">
+            {(["desktop", "tablet", "mobile"] as const).map((vp) => (
+              <button
+                key={vp}
+                onClick={() => setPreviewViewport(vp)}
+                className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                  previewViewport === vp
+                    ? "bg-brand-gold text-brand-dark font-black"
+                    : "text-white/60 hover:text-white"
+                }`}
+              >
+                {vp}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setIsPreviewMode(false)}
+              className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-colors cursor-pointer border border-white/20"
+            >
+              ← Back to Editing
+            </button>
+            <button
+              onClick={() => {
+                setShowPublishConfirm(true);
+              }}
+              className="px-4 py-2 bg-brand-gold hover:bg-brand-accent text-brand-dark hover:text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-colors cursor-pointer border border-brand-gold/30"
+            >
+              Publish Changes
+            </button>
+          </div>
+        </div>
+
+        {/* Viewport Wrapper */}
+        <div className="flex-1 bg-brand-bg/5 overflow-auto flex items-start justify-center p-4">
+          <div
+            className={`bg-white shadow-2xl transition-all duration-300 overflow-auto ${
+              previewViewport === "mobile"
+                ? "w-[375px] h-[667px] border-[12px] border-brand-dark rounded-[36px]"
+                : previewViewport === "tablet"
+                ? "w-[768px] h-[1024px] border-[16px] border-brand-dark rounded-[40px]"
+                : "w-full h-full"
+            }`}
+          >
+            <ErrorBoundary 
+              fallback={
+                <div className="p-8 text-center space-y-4 max-w-md mx-auto my-12 bg-[#FAF9F6] rounded-3xl border border-brand-dark/20 shadow-xl font-sans text-brand-dark">
+                  <div className="w-12 h-12 rounded-full bg-red-50 text-red-600 flex items-center justify-center mx-auto">
+                    <ShieldAlert size={24} />
+                  </div>
+                  <h3 className="font-display font-black text-sm text-brand-dark uppercase tracking-wider">
+                    Unable to load homepage preview.
+                  </h3>
+                  <p className="text-xs text-brand-dark/65 leading-relaxed font-semibold">
+                    An error occurred while trying to render the homepage with the current draft configuration.
+                  </p>
+                  <div className="flex justify-center gap-3 pt-2">
+                    <button
+                      onClick={() => setIsPreviewMode(false)}
+                      className="px-4 py-2 bg-brand-dark hover:bg-brand-accent text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-colors cursor-pointer border border-brand-dark"
+                    >
+                      Back to Editing
+                    </button>
+                    <button
+                      onClick={() => window.location.reload()}
+                      className="px-4 py-2 border border-brand-dark/35 hover:bg-brand-bg text-brand-dark rounded-xl text-[10px] font-black uppercase tracking-wider transition-colors cursor-pointer"
+                    >
+                      Try Again
+                    </button>
+                  </div>
+                </div>
+              }
+            >
+              <Home previewData={draftData} />
+            </ErrorBoundary>
+          </div>
+        </div>
+
+        {/* Publish Confirmation inside Preview */}
+        {showPublishConfirm && (
+          <div className="fixed inset-0 bg-brand-dark/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl p-6 border border-brand-dark/30 w-full max-w-md space-y-4 shadow-2xl">
+              <h3 className="font-display font-black text-sm text-brand-dark uppercase tracking-wider">
+                Publish Homepage Changes?
+              </h3>
+              <p className="text-xs text-brand-dark/75 leading-relaxed font-semibold">
+                These changes will become visible to customers on the live Sri Krishna Family Dhaba website.
+                Please confirm that you have reviewed the preview.
+              </p>
+              <div className="flex justify-end gap-3 pt-2 text-xs">
+                <button
+                  onClick={() => setShowPublishConfirm(false)}
+                  className="px-4 py-2 bg-brand-bg border border-brand-dark/25 rounded-xl font-bold hover:bg-brand-dark/5 transition-colors cursor-pointer text-brand-dark"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={async () => {
+                    setShowPublishConfirm(false);
+                    await handlePublishCMS();
+                  }}
+                  className="px-4 py-2 bg-brand-accent hover:bg-brand-dark text-white rounded-xl font-black uppercase tracking-wider transition-colors cursor-pointer"
+                >
+                  Publish Now
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-brand-bg/25 flex flex-col lg:flex-row font-sans text-brand-dark relative overflow-x-hidden">
       
@@ -1575,20 +2688,42 @@ export default function AdminPortal() {
             { id: "gallery", label: "GALLERY CMS", icon: ImageIcon },
             { id: "homepage", label: "HOMEPAGE CMS", icon: FileText },
             { id: "promos", label: "OFFERS & PROMOS", icon: SettingsIcon },
+            { id: "coupons", label: "GIFT COUPONS", icon: Gift },
             { id: "reviews", label: "TESTIMONIALS", icon: Star },
             { id: "contacts", label: "CUSTOMER INBOX", icon: Mail },
             { id: "customers", label: "CUSTOMER DB", icon: UserCheck },
             { id: "audit", label: "AUDIT TRAIL", icon: ShieldAlert },
+            { id: "security_audit", label: "LOGIN SECURITY AUDIT", icon: Lock },
             { id: "backups", label: "BACKUPS & SEED", icon: Database }
           ].map((tab) => {
             const Icon = tab.icon;
             const allowed = hasAccess(tab.id as AdminTab);
             if (!allowed) return null;
 
+            const badgeCount = 
+              tab.id === "bookings" 
+                ? unreadReservationsCount 
+                : tab.id === "orders" 
+                ? unreadOrdersCount 
+                : tab.id === "reviews"
+                ? unreadReviewsCount
+                : 0;
+            const displayCount = badgeCount > 99 ? "99+" : badgeCount;
+
             return (
               <button
                 key={tab.id}
                 onClick={() => {
+                  if (activeTab === "homepage" && tab.id !== "homepage" && hasUnsavedCMSChanges()) {
+                    const leave = window.confirm("You have unsaved homepage changes. Leave without saving?");
+                    if (!leave) return;
+                  }
+                  if (tab.id === "security_audit" && !isSecurityAuditUnlocked) {
+                    setIsSecurityReauthOpen(true);
+                    setSecurityReauthPassword("");
+                    setSecurityReauthError("");
+                    return;
+                  }
                   setActiveTab(tab.id as AdminTab);
                   setIsSidebarOpen(false); // Close drawer on selection on mobile
                 }}
@@ -1600,6 +2735,13 @@ export default function AdminPortal() {
               >
                 <Icon size={14} />
                 <span>{tab.label}</span>
+                {badgeCount > 0 && (
+                  <span className={`ml-auto flex items-center justify-center bg-red-600 text-white font-bold text-[9px] min-w-[18px] h-[18px] px-1.5 rounded-full ${
+                    badgeCount > 9 ? "rounded-full" : "aspect-square"
+                  }`}>
+                    {displayCount}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -1808,6 +2950,7 @@ export default function AdminPortal() {
                         <th className="pb-3 px-4 font-black">Schedule</th>
                         <th className="pb-3 px-4 font-black">Party Size</th>
                         <th className="pb-3 pl-4 font-black">Status</th>
+                        <th className="pb-3 pl-4 font-black text-center w-24">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-brand-dark/5">
@@ -1834,6 +2977,24 @@ export default function AdminPortal() {
                               {b.status}
                             </span>
                           </td>
+                          <td className="py-4 pl-4 text-center">
+                            <button
+                              onClick={() => {
+                                setSecureDeleteConfig({
+                                  title: "Delete Reservation",
+                                  itemInfo: `Booking: ${b.id}\nCustomer: ${b.name}\nDine Time: ${b.date}, ${b.time}\nStatus: ${b.status}\n\nThis reservation will be permanently removed from the database. This action cannot be undone.`,
+                                  onConfirm: async () => {
+                                    await (db as any).deleteBooking(b.id);
+                                    loadData();
+                                  }
+                                });
+                              }}
+                              className="px-2 py-1 bg-rose-50 hover:bg-red-500 border border-rose-200 hover:border-red-500 text-rose-500 hover:text-white rounded-lg text-[9px] font-black uppercase tracking-wider cursor-pointer transition-colors"
+                              title="Delete from database"
+                            >
+                              🗑 Delete
+                            </button>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -1857,13 +3018,27 @@ export default function AdminPortal() {
                   View, approve, track check-ins, assign tables, and complete dining reservations
                 </p>
               </div>
-              <button
-                onClick={loadData}
-                className="flex items-center gap-1.5 px-4 py-2 border border-brand-dark/35 hover:border-brand-accent rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer bg-white"
-              >
-                <RotateCw size={13} className="text-brand-dark" />
-                <span>REFRESH</span>
-              </button>
+              <div className="flex items-center gap-2.5">
+                <button
+                  onClick={() => {
+                    setDeleteAllTarget("bookings");
+                    setIsDeleteAllOpen(true);
+                    setDeleteAllPassword("");
+                    setDeleteAllError("");
+                  }}
+                  className="flex items-center gap-1.5 px-4 py-2 border border-red-500 hover:bg-red-500 text-red-500 hover:text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer bg-white"
+                >
+                  <Trash2 size={13} />
+                  <span>DELETE DATA</span>
+                </button>
+                <button
+                  onClick={loadData}
+                  className="flex items-center gap-1.5 px-4 py-2 border border-brand-dark/35 hover:border-brand-accent rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer bg-white"
+                >
+                  <RotateCw size={13} className="text-brand-dark" />
+                  <span>REFRESH</span>
+                </button>
+              </div>
             </div>
 
             <div className="bg-white rounded-3xl border border-brand-dark/30 shadow-sm overflow-hidden p-6 space-y-6">
@@ -1896,12 +3071,15 @@ export default function AdminPortal() {
                   {bookingFilterDate && (
                     <button
                       onClick={() => {
-                        const confirmText = `Are you sure you want to delete ALL bookings/reservations for the date: ${bookingFilterDate}?\n\nThis will permanently delete them from both local storage and the database. This action CANNOT be undone.`;
-                        if (window.confirm(confirmText)) {
-                          db.deleteBookingsByDate(bookingFilterDate);
-                          setBookingFilterDate("");
-                          loadData();
-                        }
+                        setSecureDeleteConfig({
+                          title: "Delete Bookings By Date",
+                          itemInfo: `ALL bookings/reservations for the date: ${bookingFilterDate}`,
+                          onConfirm: () => {
+                            db.deleteBookingsByDate(bookingFilterDate);
+                            setBookingFilterDate("");
+                            loadData();
+                          }
+                        });
                       }}
                       className="text-red-600 hover:text-red-800 text-[10px] font-bold uppercase tracking-wider transition-colors cursor-pointer flex items-center gap-0.5 pr-2"
                     >
@@ -2105,15 +3283,34 @@ export default function AdminPortal() {
                       )}
 
                       {b.status === "Completed" && (
-                        <div className="w-full py-1.5 bg-blue-500/10 border border-blue-500/20 text-blue-700 rounded-xl text-[10px] font-black uppercase tracking-wider text-center flex items-center justify-center gap-1.5">
+                        <div className="flex-1 py-1.5 bg-blue-500/10 border border-blue-500/20 text-blue-700 rounded-xl text-[10px] font-black uppercase tracking-wider text-center flex items-center justify-center gap-1.5">
                           <Check size={13} />
                           <span>Dining Completed</span>
                         </div>
                       )}
 
                       {b.status !== "Pending" && b.status !== "Approved" && b.status !== "Arrived" && b.status !== "Completed" && (
-                        <span className="text-[10px] font-bold text-brand-dark/45 italic py-1">No actions available</span>
+                        <span className="text-[10px] font-bold text-brand-dark/45 italic py-1 flex-1">
+                          {b.status === "Cancelled" ? "Cancelled" : b.status === "Rejected" ? "Rejected" : "No actions available"}
+                        </span>
                       )}
+
+                      <button
+                        onClick={() => {
+                          setSecureDeleteConfig({
+                            title: "Delete Reservation",
+                            itemInfo: `Booking: ${b.id}\nCustomer: ${b.name}\nDine Time: ${b.date}, ${b.time}\nStatus: ${b.status}\n\nThis reservation will be permanently removed from the database. This action cannot be undone.`,
+                            onConfirm: async () => {
+                              await (db as any).deleteBooking(b.id);
+                              loadData();
+                            }
+                          });
+                        }}
+                        className="px-2.5 py-2 bg-rose-50 hover:bg-red-500 border border-rose-200 hover:border-red-500 text-rose-500 hover:text-white rounded-xl text-[10px] font-black uppercase tracking-wider cursor-pointer transition-colors flex items-center gap-1"
+                        title="Delete from database"
+                      >
+                        <span>🗑 Delete</span>
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -2124,7 +3321,35 @@ export default function AdminPortal() {
 
         {activeTab === "orders" && (
           <div className="space-y-8 animate-fade-in">
-            <h1 className="font-display font-black text-2xl text-brand-dark uppercase tracking-wider">WhatsApp Delivery Orders</h1>
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+              <div>
+                <h1 className="font-display font-black text-2xl text-brand-dark uppercase tracking-wider">WhatsApp Delivery Orders</h1>
+                <p className="text-xs text-brand-dark/50 font-medium mt-1">
+                  Manage WhatsApp orders, update delivery statuses, and print invoices.
+                </p>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <button
+                  onClick={() => {
+                    setDeleteAllTarget("orders");
+                    setIsDeleteAllOpen(true);
+                    setDeleteAllPassword("");
+                    setDeleteAllError("");
+                  }}
+                  className="flex items-center gap-1.5 px-4 py-2 border border-red-500 hover:bg-red-500 text-red-500 hover:text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer bg-white"
+                >
+                  <Trash2 size={13} />
+                  <span>DELETE DATA</span>
+                </button>
+                <button
+                  onClick={loadData}
+                  className="flex items-center gap-1.5 px-4 py-2 border border-brand-dark/35 hover:border-brand-accent rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer bg-white"
+                >
+                  <RotateCw size={13} className="text-brand-dark" />
+                  <span>REFRESH</span>
+                </button>
+              </div>
+            </div>
 
             <div className="bg-white rounded-3xl border border-brand-dark/30 shadow-sm overflow-hidden p-6 space-y-6">
               {/* Date Filter Section (Matching Reservation Date Log) */}
@@ -2156,12 +3381,15 @@ export default function AdminPortal() {
                   {orderFilterDate && (
                     <button
                       onClick={() => {
-                        const confirmText = `Are you sure you want to delete ALL WhatsApp orders for the date: ${orderFilterDate}?\n\nThis will permanently delete them from both local storage and the database. This action CANNOT be undone.`;
-                        if (window.confirm(confirmText)) {
-                          (db as any).deleteOrdersByDate(orderFilterDate);
-                          setOrderFilterDate("");
-                          loadData();
-                        }
+                        setSecureDeleteConfig({
+                          title: "Delete Orders By Date",
+                          itemInfo: `ALL WhatsApp orders for the date: ${orderFilterDate}`,
+                          onConfirm: () => {
+                            (db as any).deleteOrdersByDate(orderFilterDate);
+                            setOrderFilterDate("");
+                            loadData();
+                          }
+                        });
                       }}
                       className="text-red-600 hover:text-red-800 text-[10px] font-bold uppercase tracking-wider transition-colors cursor-pointer flex items-center gap-0.5 pr-2"
                     >
@@ -2288,20 +3516,35 @@ export default function AdminPortal() {
 
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="text-[10px] font-bold text-brand-dark/50 uppercase tracking-widest">Set Status:</span>
-                        <select
-                          value={o.status}
-                          onChange={(e) => handleUpdateOrderStatus(o.id, e.target.value as WhatsAppOrder["status"])}
-                          className="bg-brand-bg border border-brand-dark/35 rounded-xl py-1 px-3 text-xs focus:outline-none focus:border-brand-dark/70"
-                        >
-                          <option value="Pending">Pending</option>
-                          <option value="Accepted">Accepted</option>
-                          <option value="Out For Delivery">Out For Delivery</option>
-                          <option value="Delivered">Delivered</option>
-                          <option value="Cancelled">Cancelled</option>
-                        </select>
+                        {o.status === "Delivered" ? (
+                          <span className="px-3 py-1.5 bg-emerald-100 border border-emerald-300 text-emerald-700 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center gap-1 select-none shrink-0">
+                            <span>Delivered</span>
+                            <span>🔒</span>
+                          </span>
+                        ) : (
+                          <select
+                            value={o.status}
+                            disabled={isDeliveringOrderId !== null}
+                            onChange={(e) => {
+                              const newStatus = e.target.value as WhatsAppOrder["status"];
+                              if (newStatus === "Delivered") {
+                                setOrderToMarkDelivered(o);
+                              } else {
+                                handleUpdateOrderStatus(o.id, newStatus);
+                              }
+                            }}
+                            className="bg-brand-bg border border-brand-dark/35 rounded-xl py-1 px-3 text-xs focus:outline-none focus:border-brand-dark/70 disabled:opacity-50 cursor-pointer"
+                          >
+                            <option value="Pending" disabled={o.status === "Cancelled"}>Pending</option>
+                            <option value="Accepted" disabled={o.status === "Cancelled"}>Accepted</option>
+                            <option value="Out For Delivery" disabled={o.status === "Cancelled"}>Out For Delivery</option>
+                            <option value="Delivered" disabled={o.status === "Cancelled"}>Delivered</option>
+                            <option value="Cancelled">Cancelled</option>
+                          </select>
+                        )}
                         <button
                           onClick={() => handlePrintOrderBill(o)}
-                          className="px-3 py-1.5 bg-brand-gold hover:bg-brand-dark text-brand-dark hover:text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 border border-brand-dark/30 cursor-pointer shadow-xs"
+                          className="px-3 py-1.5 bg-brand-gold hover:bg-brand-dark text-brand-dark hover:text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 border border-brand-dark/30 cursor-pointer shadow-xs shrink-0"
                           title="Print Receipt / Order Bill"
                         >
                           <Printer size={13} />
@@ -2309,7 +3552,7 @@ export default function AdminPortal() {
                         </button>
                         <button
                           onClick={() => handleDeleteOrder(o.id)}
-                          className="p-2 text-red-500 hover:bg-red-50 rounded-xl transition-colors cursor-pointer"
+                          className="p-2 text-red-500 hover:bg-red-50 rounded-xl transition-colors cursor-pointer shrink-0"
                           title="Delete Order"
                         >
                           <Trash2 size={14} />
@@ -2322,15 +3565,8 @@ export default function AdminPortal() {
                       <div>
                         <h4 className="font-bold text-brand-accent uppercase tracking-widest text-[9px] mb-2">Customer & Address</h4>
                         <p className="font-bold text-brand-dark text-sm">{o.customerName}</p>
-                        <p className="text-brand-dark/65 mt-1">Mobile: +91 {o.phone}</p>
+                        <p className="text-brand-dark/65 mt-1">Mobile: {formatPhone(o.phone)}</p>
                         <p className="text-brand-dark/65 mt-1">Address: {o.address}</p>
-                        <button
-                          onClick={() => handlePrintOrderBill(o)}
-                          className="mt-3 text-[10px] font-extrabold uppercase text-brand-accent hover:underline flex items-center gap-1 cursor-pointer"
-                        >
-                          <Printer size={12} />
-                          <span>Print Order Bill Receipt</span>
-                        </button>
                       </div>
 
                       {/* Items */}
@@ -2350,10 +3586,68 @@ export default function AdminPortal() {
                         </div>
                       </div>
                     </div>
+
+                    {o.status === "Delivered" && o.reviewToken && (
+                      <div className="pt-4 border-t border-brand-dark/15 flex flex-col sm:flex-row gap-4 items-center bg-brand-bg/25 p-4 rounded-2xl">
+                        <div className="flex-1 space-y-1">
+                          <h4 className="font-bold text-brand-accent uppercase tracking-widest text-[9px]">Customer Review Link</h4>
+                          <p className="text-[10px] text-brand-dark/50">Provide this link to the customer to request their feedback:</p>
+                          <a
+                            href={`${window.location.origin}/review?token=${o.reviewToken}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-emerald-700 hover:text-emerald-800 hover:underline break-all font-bold block"
+                          >
+                            {`${window.location.origin}/review?token=${o.reviewToken}`}
+                          </a>
+                        </div>
+                        <div className="bg-white p-2 rounded-xl border border-brand-dark/15 w-[100px] h-[100px] flex items-center justify-center shadow-inner shrink-0">
+                          <img
+                            src={`https://api.qrserver.com/v1/create-qr-code/?size=80x80&data=${encodeURIComponent(`${window.location.origin}/review?token=${o.reviewToken}`)}`}
+                            alt="Review QR Code"
+                            className="w-[80px] h-[80px]"
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
             </div>
+            {/* Delivered Status Confirmation Modal */}
+            {orderToMarkDelivered && (
+              <div className="fixed inset-0 bg-brand-dark/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                <div className="bg-white rounded-3xl p-6 border border-brand-dark/30 w-full max-w-md space-y-4 shadow-2xl">
+                  <h3 className="font-display font-black text-sm text-brand-dark uppercase tracking-wider">
+                    Mark Order as Delivered?
+                  </h3>
+                  <div className="text-xs text-brand-dark/75 space-y-2 leading-relaxed font-semibold">
+                    <p><strong>Order ID:</strong> {orderToMarkDelivered.id}</p>
+                    <p><strong>Customer:</strong> {orderToMarkDelivered.customerName}</p>
+                    <p className="text-amber-600 mt-2">
+                      ⚠️ Once marked as Delivered, the order status cannot be changed again.
+                    </p>
+                    <p>
+                      After confirmation, WhatsApp will open with a delivery confirmation message for the customer.
+                    </p>
+                  </div>
+                  <div className="flex justify-end gap-3 pt-2 text-xs">
+                    <button
+                      onClick={() => setOrderToMarkDelivered(null)}
+                      className="px-4 py-2 bg-brand-bg border border-brand-dark/25 rounded-xl font-bold hover:bg-brand-dark/5 transition-colors cursor-pointer text-brand-dark"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleConfirmDelivered}
+                      className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-black uppercase tracking-wider transition-colors cursor-pointer border border-emerald-600"
+                    >
+                      Confirm Delivered
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -2401,11 +3695,11 @@ export default function AdminPortal() {
                   </button>
                 </div>
 
-                {/* Mode Selector (Booking vs Voucher vs Auto-Detect) */}
+                {/* Mode Selector (Booking vs Order vs Voucher vs Auto-Detect) */}
                 <div className="flex items-center justify-between text-xs border-b border-brand-dark/10 pb-3">
                   <span className="text-[10px] font-extrabold uppercase tracking-wider text-brand-dark/60">Verification Type:</span>
                   <div className="flex items-center gap-1">
-                    {(["booking", "voucher", "all"] as const).map((m) => (
+                    {(["booking", "order", "voucher", "coupon", "all"] as const).map((m) => (
                       <button
                         key={m}
                         type="button"
@@ -2416,7 +3710,7 @@ export default function AdminPortal() {
                             : "bg-white text-brand-dark/60 border-brand-dark/20 hover:border-brand-dark/40"
                         }`}
                       >
-                        {m === "booking" ? "Reservations" : m === "voucher" ? "Vouchers" : "Auto-Detect"}
+                        {m === "booking" ? "Reservations" : m === "order" ? "WhatsApp Orders" : m === "voucher" ? "Loyalty Vouchers" : m === "coupon" ? "Gift Coupons" : "Auto-Detect"}
                       </button>
                     ))}
                   </div>
@@ -2424,7 +3718,7 @@ export default function AdminPortal() {
 
                 {/* Active Scanner View depending on scanMethod */}
                 {scanMethod === "camera" && (
-                  <QRCameraView onScan={(text) => processValidation(text)} />
+                  <QRCameraView onScan={(text) => processValidation(text)} isPaused={!!scanResult} />
                 )}
 
                 {scanMethod === "manual" && (
@@ -2433,14 +3727,28 @@ export default function AdminPortal() {
                       <label className="text-[10px] font-bold text-brand-dark uppercase tracking-wider block">
                         {verificationMode === "booking" 
                           ? "Enter Reservation ID (from ticket or customer)" 
+                          : verificationMode === "order"
+                          ? "Enter WhatsApp Order ID (e.g. ORD-1001) or Review Token"
                           : verificationMode === "voucher" 
                           ? "Enter Loyalty Voucher Code" 
-                          : "Enter Voucher Code or Reservation ID"}
+                          : verificationMode === "coupon"
+                          ? "Enter Gift Coupon Code / Token"
+                          : "Enter Order, Coupon, Voucher, or Reservation ID"}
                       </label>
                       <div className="flex flex-col sm:flex-row gap-2">
                         <input
                           type="text"
-                          placeholder={verificationMode === "booking" ? "e.g. r-1002 or 1002" : "e.g. RSD-REWARD-..."}
+                          placeholder={
+                            verificationMode === "booking" 
+                              ? "e.g. r-1002 or 1002" 
+                              : verificationMode === "order"
+                              ? "e.g. ORD-1001 or 1001"
+                              : verificationMode === "voucher" 
+                              ? "e.g. RSD-REWARD-..." 
+                              : verificationMode === "coupon"
+                              ? "e.g. SKF-GFT-..."
+                              : "e.g. Code, Token or ID..."
+                          }
                           value={scanInputCode}
                           onChange={(e) => setScanInputCode(e.target.value)}
                           className="flex-1 bg-brand-bg/30 border border-brand-dark/35 rounded-xl py-3 px-4 text-xs focus:outline-none focus:border-brand-dark/70 font-bold"
@@ -2483,7 +3791,7 @@ export default function AdminPortal() {
                       <div>
                         <h4 className="font-bold text-sm uppercase tracking-wide">
                           {scanResult.success 
-                            ? (scanResult.booking ? "Verified Table Reservation" : "Voucher Authorized") 
+                            ? (scanResult.booking ? "Verified Table Reservation" : scanResult.coupon ? "Gift Coupon Valid" : "Voucher Authorized") 
                             : "Scan Verification Failed"}
                         </h4>
                         <p className="text-xs mt-1 font-medium leading-relaxed">{scanResult.message}</p>
@@ -2502,7 +3810,7 @@ export default function AdminPortal() {
                         </div>
                         <div className="flex justify-between border-b border-brand-dark/10 pb-1.5 font-bold">
                           <span className="text-brand-dark/50">Mobile Number</span>
-                          <span>+91 {scanResult.booking.phone}</span>
+                          <span>{formatPhone(scanResult.booking.phone)}</span>
                         </div>
                         <div className="flex justify-between border-b border-brand-dark/10 pb-1.5 font-bold">
                           <span className="text-brand-dark/50">Date & Time</span>
@@ -2552,6 +3860,224 @@ export default function AdminPortal() {
                           <span className="text-brand-dark/50">Status</span>
                           <span className="font-bold uppercase text-[10px]">{scanResult.voucher.status}</span>
                         </div>
+                      </div>
+                    )}
+
+                    {scanResult.coupon && (
+                      <div className="bg-white/80 border border-emerald-500/20 rounded-xl p-4 text-xs space-y-4 text-brand-dark shadow-xs">
+                        <div className="flex justify-between border-b border-brand-dark/10 pb-1.5 font-bold">
+                          <span className="text-brand-dark/50">Coupon Code</span>
+                          <span className="text-brand-gold font-mono">{scanResult.coupon.code}</span>
+                        </div>
+                        <div className="flex justify-between border-b border-brand-dark/10 pb-1.5 font-bold">
+                          <span className="text-brand-dark/50">Customer</span>
+                          <span>{scanResult.coupon.customerName} (+91 {scanResult.coupon.customerMobile})</span>
+                        </div>
+                        <div className="flex justify-between border-b border-brand-dark/10 pb-1.5 font-bold">
+                          <span className="text-brand-dark/50">Discount percentage</span>
+                          <span className="text-emerald-600 font-extrabold">{scanResult.coupon.discountPercentage}% OFF</span>
+                        </div>
+                        <div className="flex justify-between border-b border-brand-dark/10 pb-1.5 font-bold">
+                          <span className="text-brand-dark/50">Minimum Bill Required</span>
+                          <span className="text-brand-dark font-extrabold">Rs. {scanResult.coupon.minimumBillAmount}</span>
+                        </div>
+                        <div className="flex justify-between border-b border-brand-dark/10 pb-1.5 font-bold">
+                          <span className="text-brand-dark/50">Coupon Category</span>
+                          <span className="uppercase text-[10px] bg-brand-gold/10 px-2 py-0.5 rounded text-brand-gold border border-brand-gold/25 font-black">{scanResult.coupon.category}</span>
+                        </div>
+                        <div className="flex justify-between border-b border-brand-dark/10 pb-1.5 font-bold">
+                          <span className="text-brand-dark/50">Validity Expiry</span>
+                          <span>{new Date(scanResult.coupon.expiresAt).toLocaleDateString("en-IN")}</span>
+                        </div>
+
+                        {scanResult.coupon.status === "ACTIVE" && (
+                          <div className="pt-3 border-t border-brand-dark/10 space-y-3">
+                            {!isConfirmingRedemption ? (
+                              <>
+                                <div className="space-y-1">
+                                  <label className="text-[10px] font-bold text-brand-dark/65 uppercase tracking-wider block">Current Bill Amount *</label>
+                                  <div className="flex gap-2">
+                                    <div className="relative flex-1">
+                                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-dark/40 font-bold text-xs">Rs.</span>
+                                      <input
+                                        type="number"
+                                        placeholder="e.g. 1250"
+                                        value={currentBillAmount}
+                                        onChange={(e) => {
+                                          setCurrentBillAmount(e.target.value);
+                                          setIsCouponEligible(null);
+                                          setCouponEligibilityError("");
+                                        }}
+                                        className="w-full bg-white border border-brand-dark/35 rounded-xl py-2 pl-9 pr-4 text-xs focus:outline-none focus:border-brand-dark/70 font-extrabold text-brand-dark shadow-inner"
+                                      />
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const billVal = Number(currentBillAmount);
+                                        if (isNaN(billVal) || billVal <= 0) {
+                                          setCouponEligibilityError("Please enter a valid bill amount.");
+                                          setIsCouponEligible(false);
+                                          return;
+                                        }
+                                        if (billVal < scanResult.coupon!.minimumBillAmount) {
+                                          setCouponEligibilityError(`❌ MINIMUM BILL NOT REACHED. Minimum bill amount of Rs. ${scanResult.coupon!.minimumBillAmount} is required to use this coupon.`);
+                                          setIsCouponEligible(false);
+                                          return;
+                                        }
+                                        const discount = billVal * (scanResult.coupon!.discountPercentage / 100);
+                                        const finalAmt = billVal - discount;
+                                        setCalculatedDiscountAmount(discount);
+                                        setCalculatedFinalAmount(finalAmt);
+                                        setIsCouponEligible(true);
+                                        setCouponEligibilityError("");
+                                      }}
+                                      className="px-4 py-2 bg-brand-gold hover:bg-brand-dark text-brand-dark hover:text-white rounded-xl text-xs font-black uppercase tracking-wider border border-brand-dark/20 cursor-pointer transition-colors shadow-xs shrink-0"
+                                    >
+                                      Verify Eligibility
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {isCouponEligible === false && couponEligibilityError && (
+                                  <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs px-3 py-2 rounded-xl font-bold leading-relaxed">
+                                    {couponEligibilityError}
+                                  </div>
+                                )}
+
+                                {isCouponEligible === true && (
+                                  <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-xl p-3 text-xs space-y-2 font-semibold">
+                                    <p className="text-emerald-700 font-extrabold uppercase text-[10px] tracking-wider">✓ COUPON ELIGIBLE</p>
+                                    <div className="flex justify-between border-b border-emerald-600/10 pb-1 font-bold">
+                                      <span>Original Bill</span>
+                                      <span>Rs. {Number(currentBillAmount)}</span>
+                                    </div>
+                                    <div className="flex justify-between border-b border-emerald-600/10 pb-1 font-bold text-emerald-700">
+                                      <span>Discount ({scanResult.coupon.discountPercentage}%)</span>
+                                      <span>-Rs. {calculatedDiscountAmount.toFixed(0)}</span>
+                                    </div>
+                                    <div className="flex justify-between font-black text-sm text-emerald-800">
+                                      <span>Final Amount</span>
+                                      <span>Rs. {calculatedFinalAmount.toFixed(0)}</span>
+                                    </div>
+                                    
+                                    <button
+                                      type="button"
+                                      onClick={() => setIsConfirmingRedemption(true)}
+                                      className="w-full mt-2 py-3 bg-brand-accent hover:bg-brand-dark text-white font-black text-xs uppercase tracking-widest rounded-xl transition-all cursor-pointer shadow-md"
+                                    >
+                                      Proceed to Redeem
+                                    </button>
+                                  </div>
+                                )}
+                              </>
+                            ) : (
+                              <div className="bg-amber-50 border border-amber-200 text-brand-dark rounded-2xl p-4 text-xs space-y-3 font-semibold text-center">
+                                <h4 className="font-extrabold text-amber-700 uppercase text-[10px] tracking-wider">Confirm Coupon Redemption?</h4>
+                                <p className="text-[11px] leading-relaxed text-brand-dark/75">
+                                  Redeeming coupon <strong>{scanResult.coupon.code}</strong> for <strong>{scanResult.coupon.customerName}</strong>. This coupon can only be used once.
+                                </p>
+                                <div className="text-left space-y-1.5 p-2 bg-white/70 rounded-xl border border-amber-200/50">
+                                  <div className="flex justify-between">
+                                    <span className="text-brand-dark/60 font-bold">Bill Amount:</span>
+                                    <span className="font-extrabold">Rs. {Number(currentBillAmount)}</span>
+                                  </div>
+                                  <div className="flex justify-between text-emerald-700">
+                                    <span className="font-bold">Discount:</span>
+                                    <span className="font-extrabold">-Rs. {calculatedDiscountAmount.toFixed(0)}</span>
+                                  </div>
+                                  <div className="flex justify-between font-black text-sm border-t border-brand-dark/5 pt-1 text-brand-dark">
+                                    <span>Final Payable:</span>
+                                    <span>Rs. {calculatedFinalAmount.toFixed(0)}</span>
+                                  </div>
+                                </div>
+                                <div className="flex gap-2 pt-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => setIsConfirmingRedemption(false)}
+                                    className="flex-1 py-2 border border-brand-dark/30 hover:bg-brand-bg rounded-xl font-bold uppercase text-[10px] cursor-pointer transition-colors"
+                                  >
+                                    Cancel
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      try {
+                                        const redeemed = (db as any).redeemGiftCoupon(scanResult.coupon!.id, {
+                                          redeemedBy: user?.name || user?.username || "Admin",
+                                          billAmount: Number(currentBillAmount),
+                                          discountAmount: calculatedDiscountAmount,
+                                          finalAmount: calculatedFinalAmount
+                                        });
+                                        setScanResult({
+                                          success: true,
+                                          message: `✓ Coupon ${scanResult.coupon!.code} Redeemed Successfully! Discount of Rs. ${calculatedDiscountAmount.toFixed(0)} applied.`,
+                                          coupon: redeemed
+                                        });
+                                        setIsConfirmingRedemption(false);
+                                        loadData();
+                                      } catch (err: any) {
+                                        alert(err.message || "Failed to redeem coupon.");
+                                      }
+                                    }}
+                                    className="flex-grow py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black uppercase text-[10px] cursor-pointer transition-colors shadow-sm"
+                                  >
+                                    Confirm Redemption
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {scanResult.order && (
+                      <div className="bg-white/80 border border-emerald-500/20 rounded-xl p-4 text-xs space-y-4 text-brand-dark shadow-xs">
+                        <div className="flex justify-between border-b border-brand-dark/10 pb-1.5 font-bold">
+                          <span className="text-brand-dark/50">Order ID</span>
+                          <span className="text-brand-gold font-mono">{scanResult.order.id}</span>
+                        </div>
+                        <div className="flex justify-between border-b border-brand-dark/10 pb-1.5 font-bold">
+                          <span className="text-brand-dark/50">Customer Name</span>
+                          <span>{scanResult.order.customerName}</span>
+                        </div>
+                        <div className="flex justify-between border-b border-brand-dark/10 pb-1.5 font-bold">
+                          <span className="text-brand-dark/50">Mobile Number</span>
+                          <span>{formatPhone(scanResult.order.phone)}</span>
+                        </div>
+                        <div className="flex justify-between border-b border-brand-dark/10 pb-1.5 font-bold">
+                          <span className="text-brand-dark/50">Grand Total</span>
+                          <span className="font-extrabold text-brand-accent">Rs. {scanResult.order.finalAmount}</span>
+                        </div>
+                        <div className="flex justify-between border-b border-brand-dark/10 pb-1.5 font-bold">
+                          <span className="text-brand-dark/50">Order Platform</span>
+                          <span className="font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded text-[9px] uppercase border border-emerald-200">{scanResult.order.platform}</span>
+                        </div>
+                        <div className="flex justify-between items-center pt-1 border-b border-brand-dark/10 pb-2">
+                          <span className="text-brand-dark/50 font-bold">Delivery Status</span>
+                          <span className={`font-black px-2.5 py-0.5 rounded text-[10px] uppercase border ${
+                            scanResult.order.status === "Pending" ? "bg-amber-500/10 border-amber-500/30 text-amber-600" :
+                            scanResult.order.status === "Accepted" ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-600" :
+                            scanResult.order.status === "Out For Delivery" ? "bg-indigo-500/10 border-indigo-500/30 text-indigo-600" :
+                            scanResult.order.status === "Delivered" ? "bg-blue-500/10 border-blue-500/30 text-blue-600" :
+                            "bg-red-500/10 border-red-500/30 text-red-600"
+                          }`}>
+                            {scanResult.order.status}
+                          </span>
+                        </div>
+
+                        {scanResult.order.status !== "Delivered" && scanResult.order.status !== "Cancelled" && (
+                          <button
+                            onClick={() => {
+                              setOrderToMarkDelivered(scanResult.order!);
+                            }}
+                            className="w-full mt-2 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+                          >
+                            <Check size={14} />
+                            <span>Mark Order as Delivered</span>
+                          </button>
+                        )}
                       </div>
                     )}
 
@@ -2740,6 +4266,11 @@ export default function AdminPortal() {
                 </div>
               </div>
 
+              {/* Total items count display */}
+              <div className="text-[10px] font-black uppercase tracking-widest text-brand-accent bg-brand-bg/60 border border-brand-dark/10 px-4 py-2.5 rounded-xl w-fit">
+                TOTAL ITEMS IN RESTAURANT - {menu.length}
+              </div>
+
               {/* Category Selectable Bar */}
               <div className="space-y-2 border-t border-brand-dark/10 pt-4">
                 <span className="text-[9px] font-black uppercase tracking-wider text-brand-dark/45">FILTER BY CATEGORY</span>
@@ -2821,16 +4352,32 @@ export default function AdminPortal() {
 
                           {/* Actions */}
                           <div className="flex flex-wrap items-center gap-2">
-                            <button
-                              onClick={() => handleToggleDishStock(dish.id, !dish.outOfStock)}
-                              className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all border cursor-pointer ${
-                                dish.outOfStock
-                                  ? "bg-red-500 text-white border-red-500"
-                                  : "bg-white text-emerald-600 border-emerald-500/20 hover:border-emerald-600"
-                              }`}
-                            >
-                              {dish.outOfStock ? "Out of Stock" : "In Stock"}
-                            </button>
+                            {updatingStockId === dish.id ? (
+                              <div className="px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider bg-gray-100 text-gray-500 border border-gray-300 animate-pulse">
+                                Updating...
+                              </div>
+                            ) : (
+                              <div className="relative">
+                                <select
+                                  value={dish.outOfStock ? "out" : "in"}
+                                  onChange={(e) => handleToggleDishStock(dish.id, e.target.value === "out")}
+                                  disabled={updatingStockId !== null}
+                                  className={`pl-3 pr-7 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all border cursor-pointer appearance-none ${
+                                    dish.outOfStock
+                                      ? "bg-red-500 text-white border-red-500 focus:outline-none"
+                                      : "bg-white text-emerald-600 border-emerald-500/20 hover:border-emerald-600 focus:outline-none"
+                                  }`}
+                                >
+                                  <option value="in" className="bg-white text-emerald-600 font-black">IN STOCK</option>
+                                  <option value="out" className="bg-white text-rose-600 font-black">OUT OF STOCK</option>
+                                </select>
+                                <span className={`absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-[8px] ${
+                                  dish.outOfStock ? "text-white" : "text-emerald-600"
+                                }`}>
+                                  ▼
+                                </span>
+                              </div>
+                            )}
 
                             <button
                               onClick={() => handleToggleDishSignature(dish.id, !dish.isSignature)}
@@ -2923,16 +4470,32 @@ export default function AdminPortal() {
 
                           {/* Actions */}
                           <div className="flex flex-wrap items-center gap-2">
-                            <button
-                              onClick={() => handleToggleDishStock(dish.id, !dish.outOfStock)}
-                              className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all border cursor-pointer ${
-                                dish.outOfStock
-                                  ? "bg-red-500 text-white border-red-500"
-                                  : "bg-white text-emerald-600 border-emerald-500/20 hover:border-emerald-600"
-                              }`}
-                            >
-                              {dish.outOfStock ? "Out of Stock" : "In Stock"}
-                            </button>
+                            {updatingStockId === dish.id ? (
+                              <div className="px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider bg-gray-100 text-gray-500 border border-gray-300 animate-pulse">
+                                Updating...
+                              </div>
+                            ) : (
+                              <div className="relative">
+                                <select
+                                  value={dish.outOfStock ? "out" : "in"}
+                                  onChange={(e) => handleToggleDishStock(dish.id, e.target.value === "out")}
+                                  disabled={updatingStockId !== null}
+                                  className={`pl-3 pr-7 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all border cursor-pointer appearance-none ${
+                                    dish.outOfStock
+                                      ? "bg-red-500 text-white border-red-500 focus:outline-none"
+                                      : "bg-white text-emerald-600 border-emerald-500/20 hover:border-emerald-600 focus:outline-none"
+                                  }`}
+                                >
+                                  <option value="in" className="bg-white text-emerald-600 font-black">IN STOCK</option>
+                                  <option value="out" className="bg-white text-rose-600 font-black">OUT OF STOCK</option>
+                                </select>
+                                <span className={`absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-[8px] ${
+                                  dish.outOfStock ? "text-white" : "text-emerald-600"
+                                }`}>
+                                  ▼
+                                </span>
+                              </div>
+                            )}
 
                             <button
                               onClick={() => handleToggleDishSignature(dish.id, !dish.isSignature)}
@@ -3066,12 +4629,20 @@ export default function AdminPortal() {
 
         {activeTab === "homepage" && (
           <div className="space-y-8 animate-fade-in">
-            <h1 className="font-display font-black text-2xl text-brand-dark uppercase tracking-wider">Homepage Content Management</h1>
-
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <h1 className="font-display font-black text-2xl text-brand-dark uppercase tracking-wider">Homepage Content Management</h1>
+              {hasUnpublishedChanges && (
+                <div className="flex items-center gap-1.5 text-[9px] text-amber-600 font-extrabold uppercase bg-amber-500/10 border border-amber-500/20 px-3 py-1.5 rounded-xl">
+                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                  <span>Unpublished Changes</span>
+                </div>
+              )}
+            </div>
+ 
             <div className="bg-white rounded-3xl p-6 border border-brand-dark/30 shadow-sm max-w-2xl space-y-6">
               <h3 className="font-display font-bold text-sm text-brand-dark uppercase tracking-wider">CMS Settings Console</h3>
               
-              <form onSubmit={handleSaveCMS} className="space-y-5">
+              <form onSubmit={handleSaveCMSDraft} className="space-y-5">
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-bold text-brand-dark uppercase tracking-wider block">Hero Video Cloudinary/MP4 Link</label>
                   <input
@@ -3083,7 +4654,7 @@ export default function AdminPortal() {
                   />
                   <span className="text-[10px] text-brand-dark/45 italic">Direct video file links (.mp4) only. Used for the background loops.</span>
                 </div>
-
+ 
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-bold text-brand-dark uppercase tracking-wider block">Restaurant Opening Hours</label>
                   <input
@@ -3094,7 +4665,7 @@ export default function AdminPortal() {
                     required
                   />
                 </div>
-
+ 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-bold text-brand-dark uppercase tracking-wider block">Contact Phone Number</label>
@@ -3117,7 +4688,7 @@ export default function AdminPortal() {
                     />
                   </div>
                 </div>
-
+ 
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-bold text-brand-dark uppercase tracking-wider block">Restaurant Physical Address</label>
                   <textarea
@@ -3128,15 +4699,119 @@ export default function AdminPortal() {
                     required
                   />
                 </div>
+ 
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-brand-dark uppercase tracking-wider block">Instagram Link</label>
+                    <input
+                      type="url"
+                      value={cmsInstagramUrl}
+                      onChange={(e) => setCmsInstagramUrl(e.target.value)}
+                      placeholder="https://instagram.com/profile"
+                      className="w-full bg-brand-bg/30 border border-brand-dark/35 rounded-xl py-2.5 px-4 text-xs focus:outline-none focus:border-brand-dark/70"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-brand-dark uppercase tracking-wider block">Facebook Link</label>
+                    <input
+                      type="url"
+                      value={cmsFacebookUrl}
+                      onChange={(e) => setCmsFacebookUrl(e.target.value)}
+                      placeholder="https://facebook.com/profile"
+                      className="w-full bg-brand-bg/30 border border-brand-dark/35 rounded-xl py-2.5 px-4 text-xs focus:outline-none focus:border-brand-dark/70"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-brand-dark uppercase tracking-wider block">Zomato Link</label>
+                    <input
+                      type="url"
+                      value={cmsZomatoUrl}
+                      onChange={(e) => setCmsZomatoUrl(e.target.value)}
+                      placeholder="https://www.zomato.com/hyderabad/..."
+                      className="w-full bg-brand-bg/30 border border-brand-dark/35 rounded-xl py-2.5 px-4 text-xs focus:outline-none focus:border-brand-dark/70"
+                    />
+                  </div>
+                </div>
 
-                <button
-                  type="submit"
-                  className="w-full py-3.5 bg-brand-accent hover:bg-brand-dark text-white rounded-xl text-xs font-black tracking-widest uppercase transition-colors cursor-pointer"
-                >
-                  Save Homepage configurations
-                </button>
+                <div className="flex flex-col sm:flex-row gap-3 pt-2">
+                  <button
+                    type="submit"
+                    className="flex-grow py-3.5 bg-brand-accent hover:bg-brand-dark text-white rounded-xl text-xs font-black tracking-widest uppercase transition-colors cursor-pointer"
+                  >
+                    Save Draft
+                  </button>
+                   <button
+                    type="button"
+                    onClick={async () => {
+                      if (!validateCMSDraft()) return;
+                      try {
+                        await db.updateSettingsDraft({
+                          heroVideo: cmsHeroVideo,
+                          timings: cmsTimings,
+                          contactPhone: cmsPhone,
+                          contactEmail: cmsEmail,
+                          contactAddress: cmsAddress,
+                          discountPercent: cmsDiscount,
+                          instagramUrl: cmsInstagramUrl,
+                          facebookUrl: cmsFacebookUrl,
+                          zomatoUrl: cmsZomatoUrl
+                        });
+                        loadData();
+                        setIsPreviewMode(true);
+                      } catch (err) {
+                        console.error("Failed to save draft for preview:", err);
+                        alert("Unable to save draft configuration for preview. Please try again.");
+                      }
+                    }}
+                    className="flex-grow py-3.5 bg-white border border-brand-dark text-brand-dark hover:bg-brand-bg rounded-xl text-xs font-black tracking-widest uppercase transition-colors cursor-pointer"
+                  >
+                    Preview Changes
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (validateCMSDraft()) {
+                        setShowPublishConfirm(true);
+                      }
+                    }}
+                    className="flex-grow py-3.5 bg-brand-gold hover:bg-brand-accent hover:text-white text-brand-dark rounded-xl text-xs font-black tracking-widest uppercase transition-colors cursor-pointer"
+                  >
+                    Publish Changes
+                  </button>
+                </div>
               </form>
             </div>
+
+            {showPublishConfirm && !isPreviewMode && (
+              <div className="fixed inset-0 bg-brand-dark/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                <div className="bg-white rounded-3xl p-6 border border-brand-dark/30 w-full max-w-md space-y-4 shadow-2xl">
+                  <h3 className="font-display font-black text-sm text-brand-dark uppercase tracking-wider">
+                    Publish Homepage Changes?
+                  </h3>
+                  <p className="text-xs text-brand-dark/75 leading-relaxed font-semibold">
+                    These changes will become visible to customers on the live Sri Krishna Family Dhaba website.
+                    Please confirm that you have reviewed the preview.
+                  </p>
+                  <div className="flex justify-end gap-3 pt-2 text-xs">
+                    <button
+                      onClick={() => setShowPublishConfirm(false)}
+                      className="px-4 py-2 bg-brand-bg border border-brand-dark/25 rounded-xl font-bold hover:bg-brand-dark/5 transition-colors cursor-pointer text-brand-dark"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={async () => {
+                        setShowPublishConfirm(false);
+                        await handlePublishCMS();
+                      }}
+                      className="px-4 py-2 bg-brand-accent hover:bg-brand-dark text-white rounded-xl font-black uppercase tracking-wider transition-colors cursor-pointer"
+                    >
+                      Publish Now
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -3185,14 +4860,19 @@ export default function AdminPortal() {
                     webExclusiveText: updatedWebText,
                     reservationPromoText: updatedResText
                   });
-                  setWebExclusiveTextInput(updatedWebText);
-                  setReservationPromoInput(updatedResText);
-
-                  (db as any).addAuditLog("Promo Updated", `Changed global discount to ${cmsDiscount}% and updated all active offer promo texts`);
-                  loadData();
-                  window.dispatchEvent(new Event("skd_settings_updated"));
-                  window.dispatchEvent(new Event("storage"));
-                  alert(`Global discount rate saved as ${cmsDiscount}%! All promo texts and discount banners updated.`);
+                  db.updateSettingsDraft({
+                    discountPercent: cmsDiscount,
+                    webExclusiveText: updatedWebText,
+                    reservationPromoText: updatedResText
+                  }).then(() => {
+                    setWebExclusiveTextInput(updatedWebText);
+                    setReservationPromoInput(updatedResText);
+                    (db as any).addAuditLog("Promo Updated", `Changed global discount to ${cmsDiscount}% and updated all active offer promo texts`);
+                    loadData();
+                    window.dispatchEvent(new Event("skd_settings_updated"));
+                    window.dispatchEvent(new Event("storage"));
+                    alert(`Global discount rate saved as ${cmsDiscount}%! All promo texts and discount banners updated.`);
+                  });
                 }}
                 className="w-full py-3 bg-brand-accent hover:bg-brand-dark text-white rounded-xl text-xs font-black tracking-widest uppercase transition-colors cursor-pointer"
               >
@@ -3232,11 +4912,13 @@ export default function AdminPortal() {
                         <button
                           onClick={() => {
                             db.updateSettings({ webExclusiveText: webExclusiveTextInput });
-                            (db as any).addAuditLog("Promo Text Updated", `Changed Web Exclusive text to "${webExclusiveTextInput}" from Promos`);
-                            loadData();
-                            window.dispatchEvent(new Event("skd_settings_updated"));
-                            window.dispatchEvent(new Event("storage"));
-                            alert("Announcement text updated successfully!");
+                            db.updateSettingsDraft({ webExclusiveText: webExclusiveTextInput }).then(() => {
+                              (db as any).addAuditLog("Promo Text Updated", `Changed Web Exclusive text to "${webExclusiveTextInput}" from Promos`);
+                              loadData();
+                              window.dispatchEvent(new Event("skd_settings_updated"));
+                              window.dispatchEvent(new Event("storage"));
+                              alert("Announcement text updated successfully!");
+                            });
                           }}
                           className="px-4 py-2.5 sm:py-2 bg-brand-gold hover:bg-brand-dark text-brand-dark hover:text-white rounded-xl text-[10px] font-black tracking-widest uppercase transition-all cursor-pointer border border-brand-dark/30 w-full sm:w-auto shrink-0"
                         >
@@ -3259,11 +4941,13 @@ export default function AdminPortal() {
                         <button
                           onClick={() => {
                             db.updateSettings({ reservationPromoText: reservationPromoInput });
-                            (db as any).addAuditLog("Promo Text Updated", `Changed Reservation Desk Promo text to "${reservationPromoInput}" from Promos`);
-                            loadData();
-                            window.dispatchEvent(new Event("skd_settings_updated"));
-                            window.dispatchEvent(new Event("storage"));
-                            alert("Reservation desk promo text updated successfully!");
+                            db.updateSettingsDraft({ reservationPromoText: reservationPromoInput }).then(() => {
+                              (db as any).addAuditLog("Promo Text Updated", `Changed Reservation Desk Promo text to "${reservationPromoInput}" from Promos`);
+                              loadData();
+                              window.dispatchEvent(new Event("skd_settings_updated"));
+                              window.dispatchEvent(new Event("storage"));
+                              alert("Reservation desk promo text updated successfully!");
+                            });
                           }}
                           className="px-4 py-2.5 sm:py-2 bg-brand-gold hover:bg-brand-dark text-brand-dark hover:text-white rounded-xl text-[10px] font-black tracking-widest uppercase transition-all cursor-pointer border border-brand-dark/30 w-full sm:w-auto shrink-0"
                         >
@@ -3274,15 +4958,17 @@ export default function AdminPortal() {
 
                     {/* Preview */}
                     <div className={`rounded-xl overflow-hidden text-center py-2 px-3 text-[10px] font-bold ${isOn ? "bg-[#132b15] text-brand-gold" : "bg-gray-100 text-gray-400 line-through"}`}>
-                      🏷️ WEB EXCLUSIVE — {s.webExclusiveText || ("Book a table & get " + cmsDiscount + "% OFF your dining bill")} · [Book Now]
+                      🏷️ WEB EXCLUSIVE — {db.formatPromoText(webExclusiveTextInput || "Book a table online & get {discount}% OFF your dining bill", cmsDiscount)} · [Book Now]
                     </div>
 
                     <div className="flex flex-col sm:flex-row gap-3 pt-1">
                       <button
                         onClick={() => {
                           db.updateSettings({ showWebExclusiveBar: true });
-                          (db as any).addAuditLog("Promo Enabled", "Enabled Web Exclusive announcement top bar");
-                          loadData();
+                          db.updateSettingsDraft({ showWebExclusiveBar: true }).then(() => {
+                            (db as any).addAuditLog("Promo Enabled", "Enabled Web Exclusive announcement top bar");
+                            loadData();
+                          });
                         }}
                         className={`flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer border ${isOn ? "bg-emerald-500 text-white border-emerald-500" : "bg-white text-brand-dark border-brand-dark/40 hover:border-emerald-400"}`}
                       >
@@ -3291,8 +4977,10 @@ export default function AdminPortal() {
                       <button
                         onClick={() => {
                           db.updateSettings({ showWebExclusiveBar: false });
-                          (db as any).addAuditLog("Promo Disabled", "Hid Web Exclusive announcement top bar from website");
-                          loadData();
+                          db.updateSettingsDraft({ showWebExclusiveBar: false }).then(() => {
+                            (db as any).addAuditLog("Promo Disabled", "Hid Web Exclusive announcement top bar from website");
+                            loadData();
+                          });
                         }}
                         className={`flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer border ${!isOn ? "bg-red-500 text-white border-red-500" : "bg-white text-brand-dark border-brand-dark/40 hover:border-red-400"}`}
                       >
@@ -3328,8 +5016,10 @@ export default function AdminPortal() {
                       <button
                         onClick={() => {
                           db.updateSettings({ showMenuPromo: true });
-                          (db as any).addAuditLog("Promo Enabled", "Enabled discount banner on /menu page");
-                          loadData();
+                          db.updateSettingsDraft({ showMenuPromo: true }).then(() => {
+                            (db as any).addAuditLog("Promo Enabled", "Enabled discount banner on /menu page");
+                            loadData();
+                          });
                         }}
                         className={`flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer border ${isOn ? "bg-emerald-500 text-white border-emerald-500" : "bg-white text-brand-dark border-brand-dark/40 hover:border-emerald-400"}`}
                       >
@@ -3338,8 +5028,10 @@ export default function AdminPortal() {
                       <button
                         onClick={() => {
                           db.updateSettings({ showMenuPromo: false });
-                          (db as any).addAuditLog("Promo Disabled", "Removed discount banner from /menu page");
-                          loadData();
+                          db.updateSettingsDraft({ showMenuPromo: false }).then(() => {
+                            (db as any).addAuditLog("Promo Disabled", "Removed discount banner from /menu page");
+                            loadData();
+                          });
                         }}
                         className={`flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer border ${!isOn ? "bg-red-500 text-white border-red-500" : "bg-white text-brand-dark border-brand-dark/40 hover:border-red-400"}`}
                       >
@@ -3350,6 +5042,588 @@ export default function AdminPortal() {
                 );
               })()}
             </div>
+          </div>
+        )}
+
+        {activeTab === "coupons" && (
+          <div className="space-y-8 animate-fade-in font-sans">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+              <div>
+                <h1 className="font-display font-black text-2xl text-brand-dark uppercase tracking-wider">Gift Coupon Management</h1>
+                <p className="text-xs text-brand-dark/50 mt-1">Create and manage personalized rewards for existing customers.</p>
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={handleClearAllCoupons}
+                  className="px-5 py-3 border border-red-500 hover:bg-red-500 text-red-500 hover:text-white rounded-xl text-xs font-black tracking-widest uppercase transition-all shadow flex items-center gap-1.5 cursor-pointer bg-white"
+                >
+                  <Trash2 size={14} />
+                  <span>Delete All Data</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setNewCouponCustomer(null);
+                    setNewCouponMinBill(1000);
+                    setNewCouponDiscount(20);
+                    setNewCouponCategory("LOYALTY REWARD");
+                    setNewCouponCustomCategory("");
+                    setNewCouponValidity(30);
+                    setCustomerSearch("");
+                    setIsCouponModalOpen(true);
+                  }}
+                  className="px-5 py-3 bg-brand-accent hover:bg-brand-dark text-white rounded-xl text-xs font-black tracking-widest uppercase transition-all shadow flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Plus size={14} />
+                  <span>Generate New Gift Coupon</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Dynamic summary widgets */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="bg-white rounded-2xl p-4 border border-brand-dark/25 shadow-xs space-y-1">
+                <span className="text-[9px] font-black text-brand-dark/45 uppercase tracking-wider block">Total Coupons</span>
+                <span className="text-2xl font-black text-brand-dark">{coupons.length}</span>
+              </div>
+              <div className="bg-white rounded-2xl p-4 border border-brand-dark/25 shadow-xs space-y-1">
+                <span className="text-[9px] font-black text-brand-dark/45 uppercase tracking-wider block">Active Coupons</span>
+                <span className="text-2xl font-black text-emerald-600">{coupons.filter(c => c.status === "ACTIVE").length}</span>
+              </div>
+              <div className="bg-white rounded-2xl p-4 border border-brand-dark/25 shadow-xs space-y-1">
+                <span className="text-[9px] font-black text-brand-dark/45 uppercase tracking-wider block">Redeemed Coupons</span>
+                <span className="text-2xl font-black text-brand-gold">{coupons.filter(c => c.status === "REDEEMED").length}</span>
+              </div>
+              <div className="bg-white rounded-2xl p-4 border border-brand-dark/25 shadow-xs space-y-1">
+                <span className="text-[9px] font-black text-brand-dark/45 uppercase tracking-wider block">Expired Coupons</span>
+                <span className="text-2xl font-black text-rose-600">{coupons.filter(c => c.status === "EXPIRED").length}</span>
+              </div>
+            </div>
+
+            {/* Filters Section */}
+            <div className="bg-white rounded-3xl p-5 border border-brand-dark/30 shadow-sm space-y-4">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div className="flex flex-wrap gap-2">
+                  {["All", "ACTIVE", "REDEEMED", "EXPIRED", "CANCELLED"].map((st) => (
+                    <button
+                      key={st}
+                      onClick={() => setCouponFilterStatus(st)}
+                      className={`px-4 py-2 rounded-xl text-xs font-black tracking-wider uppercase border transition-all cursor-pointer ${
+                        couponFilterStatus === st
+                          ? "bg-brand-accent text-white border-brand-accent shadow-sm"
+                          : "bg-white text-brand-dark border-brand-dark/35 hover:border-brand-accent"
+                      }`}
+                    >
+                      {st}
+                    </button>
+                  ))}
+                </div>
+                <div className="relative w-full max-w-xs">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-brand-dark/40"><Search size={14} /></span>
+                  <input
+                    type="text"
+                    placeholder="Search coupon / customer / mobile..."
+                    value={couponSearchQuery}
+                    onChange={(e) => setCouponSearchQuery(e.target.value)}
+                    className="w-full bg-brand-bg/30 border border-brand-dark/35 rounded-xl py-2 px-9 text-xs focus:outline-none focus:border-brand-dark/70"
+                  />
+                </div>
+              </div>
+
+              {/* Coupons List Table */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-brand-dark/35 text-brand-dark/50 text-[10px] font-bold uppercase tracking-widest">
+                      <th className="py-3 px-4">Coupon Code</th>
+                      <th className="py-3 px-4">Customer</th>
+                      <th className="py-3 px-4">Category</th>
+                      <th className="py-3 px-4 text-right">Min Bill</th>
+                      <th className="py-3 px-4 text-center">Discount</th>
+                      <th className="py-3 px-4">Created</th>
+                      <th className="py-3 px-4">Expiry</th>
+                      <th className="py-3 px-4 text-center">Status</th>
+                      <th className="py-3 px-4 text-center w-36">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(() => {
+                      const filtered = coupons.filter(c => {
+                        const statusMatch = couponFilterStatus === "All" || c.status === couponFilterStatus;
+                        const query = couponSearchQuery.trim().toLowerCase();
+                        const queryDigits = query.replace(/\D/g, "");
+                        const textMatch = !query || 
+                          c.code.toLowerCase().includes(query) ||
+                          c.customerName.toLowerCase().includes(query) ||
+                          c.customerMobile.includes(query) ||
+                          (queryDigits && c.customerMobile.replace(/\D/g, "").includes(queryDigits));
+                        return statusMatch && textMatch;
+                      });
+
+                      if (filtered.length === 0) {
+                        return (
+                          <tr>
+                            <td colSpan={9} className="py-8 text-center text-brand-dark/40 font-bold">
+                              No coupons found.
+                            </td>
+                          </tr>
+                        );
+                      }
+
+                      return filtered.map((c) => (
+                        <tr key={c.id} className="border-b border-brand-dark/10 hover:bg-brand-bg/20 transition-colors">
+                          <td className="py-3 px-4 font-mono font-black text-brand-dark">{c.code}</td>
+                          <td className="py-3 px-4 font-semibold text-brand-dark">
+                            <div>{c.customerName}</div>
+                            <div className="text-[10px] text-brand-dark/40">+91 {c.customerMobile}</div>
+                          </td>
+                          <td className="py-3 px-4 uppercase text-[10px] font-bold text-brand-dark/65">
+                            {c.category.replace(/_/g, " ")}
+                          </td>
+                          <td className="py-3 px-4 text-right font-extrabold text-brand-dark">Rs. {c.minimumBillAmount}</td>
+                          <td className="py-3 px-4 text-center font-extrabold text-emerald-600">{c.discountPercentage}% OFF</td>
+                          <td className="py-3 px-4 text-brand-dark/60">{new Date(c.createdAt).toLocaleDateString("en-IN")}</td>
+                          <td className="py-3 px-4 text-brand-dark/60">{new Date(c.expiresAt).toLocaleDateString("en-IN")}</td>
+                          <td className="py-3 px-4 text-center">
+                            <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase border ${
+                              c.status === "ACTIVE" ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-600" :
+                              c.status === "REDEEMED" ? "bg-gray-100 border-gray-300 text-gray-500" :
+                              "bg-red-500/10 border-red-500/30 text-red-600"
+                            }`}>
+                              {c.status}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            <div className="flex items-center justify-center gap-1.5">
+                              <button
+                                onClick={() => {
+                                  setNewCouponSuccess(c);
+                                  setIsCouponSuccessOpen(true);
+                                }}
+                                className="px-2 py-1 bg-white border border-brand-dark/30 hover:border-brand-dark text-brand-dark rounded-lg text-[9px] font-black uppercase tracking-wider cursor-pointer"
+                                title="View Coupon Card & QR"
+                              >
+                                View
+                              </button>
+                              <button
+                                disabled={c.status !== "ACTIVE"}
+                                onClick={() => {
+                                  const digits = c.customerMobile.replace(/\D/g, "");
+                                  const targetPhone = digits.length === 10 ? `91${digits}` : digits;
+                                  const expiryStr = new Date(c.expiresAt).toLocaleDateString("en-IN", {
+                                    day: "numeric",
+                                    month: "short",
+                                    year: "numeric"
+                                  });
+                                  const categoryStr = c.category.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, l => l.toUpperCase());
+                                  const text = `Hello ${c.customerName} 👋\n\nHere is your Sri Krishna Family Dhaba Gift Coupon again. 🎁\n\n🎁 GIFT COUPON\n\nCoupon Code:\n${c.code}\n\nDiscount:\n${c.discountPercentage}% OFF\n\nMinimum Bill:\nRs. ${c.minimumBillAmount}\n\nCategory:\n${categoryStr}\n\nValid Until:\n${expiryStr}\n\nView your Gift Coupon & QR:\n${window.location.origin}/gift-coupon?token=${c.secureToken}\n\nPlease present the QR code or coupon details when redeeming your offer.\n\nThank you,\nSri Krishna Family Dhaba 🙏`;
+                                  const waUrl = `https://wa.me/${targetPhone}?text=${encodeURIComponent(text)}`;
+                                  window.open(waUrl, "_blank");
+                                  
+                                  const logMsg = `couponId: ${c.id}, customerId: ${c.customerId}, sharedAt: ${new Date().toISOString()}`;
+                                  (db as any).addAuditLog("GIFT_COUPON_SHARED", logMsg, user?.name || user?.username || "Admin");
+                                }}
+                                className={`px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider border cursor-pointer transition-colors ${
+                                  c.status === "ACTIVE"
+                                    ? "bg-brand-gold hover:bg-brand-dark text-brand-dark hover:text-white border-brand-dark/20"
+                                    : "opacity-40 cursor-not-allowed bg-gray-100 text-gray-400 border-gray-300 hover:bg-gray-100 hover:text-gray-400"
+                                }`}
+                                title={c.status === "ACTIVE" ? "Share via WhatsApp" : `Cannot share ${c.status.toLowerCase()} coupon`}
+                              >
+                                Share
+                              </button>
+                              {c.status === "ACTIVE" && (
+                                <button
+                                  onClick={() => {
+                                    setSecureDeleteConfig({
+                                      title: "Cancel Gift Coupon",
+                                      itemInfo: `Cancel Gift Coupon ${c.code} issued for ${c.customerName}. This action is irreversible and the QR code will immediately become invalid.`,
+                                      onConfirm: () => {
+                                        (db as any).cancelGiftCoupon(c.id, user?.name || user?.username || "Admin");
+                                        loadData();
+                                      }
+                                    });
+                                  }}
+                                  className="px-2 py-1 bg-rose-50 hover:bg-rose-500 border border-rose-200 hover:border-rose-500 text-rose-500 hover:text-white rounded-lg text-[9px] font-black uppercase tracking-wider cursor-pointer transition-colors"
+                                  title="Cancel/Void Coupon"
+                                >
+                                  Cancel
+                                </button>
+                              )}
+                              <button
+                                onClick={() => {
+                                  setSecureDeleteConfig({
+                                    title: "Delete Gift Coupon",
+                                    itemInfo: `Coupon: ${c.code}\nCustomer: ${c.customerName}\nStatus: ${c.status}\n\nThis will permanently remove this coupon from the database. This action cannot be undone.`,
+                                    onConfirm: async () => {
+                                      await (db as any).deleteGiftCoupon(c.id);
+                                      loadData();
+                                    }
+                                  });
+                                }}
+                                className="px-2 py-1 bg-rose-50 hover:bg-red-500 border border-rose-200 hover:border-red-500 text-rose-500 hover:text-white rounded-lg text-[9px] font-black uppercase tracking-wider cursor-pointer transition-colors"
+                                title="Delete from database"
+                              >
+                                🗑 Delete
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ));
+                    })()}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Generate New Coupon Modal */}
+            {isCouponModalOpen && (
+              <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                <div className="bg-white rounded-3xl border border-brand-dark/30 shadow-2xl overflow-hidden w-full max-w-md animate-scale-in">
+                  <div className="bg-brand-dark text-brand-bg px-6 py-4 flex justify-between items-center border-b border-brand-gold/15">
+                    <h3 className="font-display font-black text-sm uppercase tracking-widest flex items-center gap-1.5 text-brand-gold">
+                      <Gift size={16} />
+                      <span>Generate New Gift Coupon</span>
+                    </h3>
+                    <button
+                      onClick={() => setIsCouponModalOpen(false)}
+                      className="text-brand-bg/70 hover:text-white p-1 cursor-pointer"
+                    >
+                      <X size={18} />
+                    </button>
+                  </div>
+
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      if (!newCouponCustomer) {
+                        alert("Please select an existing customer from the Customer DB.");
+                        return;
+                      }
+
+                      const code = `SKF-GFT-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+
+                      const expires = new Date();
+                      expires.setDate(expires.getDate() + newCouponValidity);
+                      expires.setHours(23, 59, 59, 999);
+
+                      const couponData = {
+                        code,
+                        customerId: newCouponCustomer.phone,
+                        customerName: newCouponCustomer.name,
+                        customerMobile: newCouponCustomer.phone,
+                        minimumBillAmount: newCouponMinBill,
+                        discountPercentage: newCouponDiscount,
+                        category: newCouponCategory === "OTHER" ? (newCouponCustomCategory.trim().toUpperCase() || "OTHER REWARD") : newCouponCategory,
+                        expiresAt: expires.toISOString()
+                      };
+
+                      try {
+                        const created = (db as any).addGiftCoupon(couponData);
+                        setIsCouponModalOpen(false);
+                        setNewCouponSuccess(created);
+                        setIsCouponSuccessOpen(true);
+                        loadData();
+                      } catch (err: any) {
+                        alert(err.message || "Failed to generate gift coupon.");
+                      }
+                    }}
+                    className="p-6 space-y-4 max-h-[75vh] overflow-y-auto text-left"
+                  >
+                    {/* 1. SELECT CUSTOMER */}
+                    <div className="space-y-1 relative">
+                      <label className="text-[10px] font-bold text-brand-dark uppercase tracking-wider block">
+                        Select Customer *
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          placeholder="Search customer name / mobile number..."
+                          value={customerSearch}
+                          onFocus={() => setIsCustomerDropdownOpen(true)}
+                          onChange={(e) => {
+                            setCustomerSearch(e.target.value);
+                            setIsCustomerDropdownOpen(true);
+                          }}
+                          className="w-full bg-brand-bg/30 border border-brand-dark/35 rounded-xl py-2.5 px-4 text-xs focus:outline-none focus:border-brand-dark/70 font-semibold"
+                        />
+                        {isCustomerDropdownOpen && (
+                          <div className="absolute top-full left-0 right-0 bg-white border border-brand-dark/30 rounded-xl shadow-lg mt-1 max-h-48 overflow-y-auto z-50">
+                            {(() => {
+                              const filtered = customerDatabase.filter(c => {
+                                const q = customerSearch.trim().toLowerCase();
+                                return !q || c.name.toLowerCase().includes(q) || c.phone.includes(q);
+                              });
+
+                              if (filtered.length === 0) {
+                                return (
+                                  <div className="p-3 text-center text-xs text-brand-dark/40 font-bold">
+                                    No matching customers found.
+                                  </div>
+                                );
+                              }
+
+                              return filtered.map((c) => (
+                                <button
+                                  key={c.phone}
+                                  type="button"
+                                  onClick={() => {
+                                    setNewCouponCustomer(c);
+                                    setIsCustomerDropdownOpen(false);
+                                    setCustomerSearch(c.name);
+                                  }}
+                                  className="w-full p-2.5 hover:bg-brand-bg/50 border-b border-brand-dark/5 text-left text-xs font-semibold text-brand-dark flex flex-col cursor-pointer"
+                                >
+                                  <span>{c.name}</span>
+                                  <span className="text-[10px] text-brand-dark/40 font-bold">+91 {c.phone}</span>
+                                </button>
+                              ));
+                            })()}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Selected Customer Details Confirmation Card */}
+                    {newCouponCustomer && (
+                      <div className="bg-brand-bg/55 border border-brand-dark/15 rounded-2xl p-3 text-xs space-y-1.5 font-semibold text-brand-dark/95">
+                        <p className="text-[9px] font-black uppercase text-brand-accent tracking-wider">Selected Customer Profiles</p>
+                        <p className="font-extrabold">{newCouponCustomer.name} (+91 {newCouponCustomer.phone})</p>
+                        <div className="grid grid-cols-3 gap-2 text-[10px] text-brand-dark/65 border-t border-brand-dark/10 pt-1.5">
+                          <div>
+                            <span className="block font-black text-brand-dark/45 uppercase text-[8px]">Reservations</span>
+                            <span className="font-extrabold">{newCouponCustomer.bookingsCount || 0}</span>
+                          </div>
+                          <div>
+                            <span className="block font-black text-brand-dark/45 uppercase text-[8px]">WhatsApp Orders</span>
+                            <span className="font-extrabold">{newCouponCustomer.ordersCount || 0}</span>
+                          </div>
+                          <div>
+                            <span className="block font-black text-brand-dark/45 uppercase text-[8px]">Est. Spend</span>
+                            <span className="font-extrabold">Rs. {newCouponCustomer.spend || 0}</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 2. MINIMUM BILL AMOUNT */}
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-brand-dark uppercase tracking-wider block">
+                        Minimum Bill Amount (Rs.) *
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        required
+                        value={newCouponMinBill}
+                        onChange={(e) => setNewCouponMinBill(Math.max(0, Number(e.target.value) || 0))}
+                        className="w-full bg-brand-bg/30 border border-brand-dark/35 rounded-xl py-2.5 px-4 text-xs focus:outline-none focus:border-brand-dark/70 font-bold"
+                      />
+                    </div>
+
+                    {/* 3. DISCOUNT PERCENTAGE */}
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-brand-dark uppercase tracking-wider block">
+                        Discount Percentage (%) *
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="100"
+                        required
+                        value={newCouponDiscount}
+                        onChange={(e) => setNewCouponDiscount(Math.max(1, Math.min(100, Number(e.target.value) || 1)))}
+                        className="w-full bg-brand-bg/30 border border-brand-dark/35 rounded-xl py-2.5 px-4 text-xs focus:outline-none focus:border-brand-dark/70 font-bold"
+                      />
+                    </div>
+
+                    {/* 4. COUPON CATEGORY */}
+                    <div className="space-y-2">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-brand-dark uppercase tracking-wider block">
+                          Coupon Category *
+                        </label>
+                        <select
+                          value={newCouponCategory}
+                          onChange={(e) => setNewCouponCategory(e.target.value)}
+                          className="w-full bg-brand-bg/30 border border-brand-dark/35 rounded-xl py-2.5 px-4 text-xs focus:outline-none focus:border-brand-dark/70 font-bold cursor-pointer"
+                        >
+                          <option value="LOYALTY REWARD">LOYALTY REWARD</option>
+                          <option value="BIRTHDAY GIFT">BIRTHDAY GIFT</option>
+                          <option value="ANNIVERSARY GIFT">ANNIVERSARY GIFT</option>
+                          <option value="SPECIAL CUSTOMER">SPECIAL CUSTOMER</option>
+                          <option value="CUSTOMER RETENTION">CUSTOMER RETENTION</option>
+                          <option value="SERVICE RECOVERY">SERVICE RECOVERY</option>
+                          <option value="FESTIVAL OFFER">FESTIVAL OFFER</option>
+                          <option value="PROMOTIONAL GIFT">PROMOTIONAL GIFT</option>
+                          <option value="OTHER">OTHER</option>
+                        </select>
+                      </div>
+
+                      {newCouponCategory === "OTHER" && (
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-brand-dark uppercase tracking-wider block">
+                            Custom Category Reason *
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="e.g. COMPLIMENTARY REWARD"
+                            value={newCouponCustomCategory}
+                            onChange={(e) => setNewCouponCustomCategory(e.target.value)}
+                            className="w-full bg-brand-bg/30 border border-brand-dark/35 rounded-xl py-2.5 px-4 text-xs focus:outline-none focus:border-brand-dark/70 font-bold"
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 5. VALIDITY */}
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-brand-dark uppercase tracking-wider block">
+                        Validity (Days) *
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        required
+                        value={newCouponValidity}
+                        onChange={(e) => setNewCouponValidity(Math.max(1, Number(e.target.value) || 1))}
+                        className="w-full bg-brand-bg/30 border border-brand-dark/35 rounded-xl py-2.5 px-4 text-xs focus:outline-none focus:border-brand-dark/70 font-bold"
+                      />
+                    </div>
+
+                    <div className="flex gap-3 pt-4 border-t border-brand-dark/10">
+                      <button
+                        type="button"
+                        onClick={() => setIsCouponModalOpen(false)}
+                        className="flex-1 py-3 border border-brand-dark/30 hover:bg-brand-bg text-brand-dark font-black text-xs uppercase tracking-wider rounded-xl transition-all cursor-pointer text-center"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        className="flex-grow py-3 bg-brand-accent hover:bg-brand-dark text-white font-black text-xs uppercase tracking-widest rounded-xl transition-all cursor-pointer shadow-md text-center"
+                      >
+                        Generate Coupon
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {/* Coupon Success Display Modal */}
+            {isCouponSuccessOpen && newCouponSuccess && (
+              <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                <div className="bg-white rounded-3xl border border-brand-dark/30 shadow-2xl overflow-hidden w-full max-w-sm animate-scale-in">
+                  <div className="bg-brand-dark text-brand-bg px-6 py-4 flex justify-between items-center border-b border-brand-gold/15">
+                    <h3 className="font-display font-black text-xs uppercase tracking-widest text-brand-gold">
+                      🎁 Coupon Details
+                    </h3>
+                    <button
+                      onClick={() => setIsCouponSuccessOpen(false)}
+                      className="text-brand-bg/70 hover:text-white p-1 cursor-pointer"
+                    >
+                      <X size={18} />
+                    </button>
+                  </div>
+
+                  <div className="p-6 text-center space-y-5 font-sans">
+                    <div className="border border-brand-gold/30 bg-brand-bg/30 rounded-2xl p-4 space-y-4">
+                      <div className="space-y-1">
+                        <span className="text-[9px] font-black text-brand-accent uppercase tracking-widest bg-brand-gold/10 px-2.5 py-0.5 rounded border border-brand-gold/30">{newCouponSuccess.category}</span>
+                        <h2 className="font-display font-black text-3xl text-brand-dark mt-2">{newCouponSuccess.discountPercentage}% OFF</h2>
+                        <p className="text-xs text-brand-dark/65 font-semibold">For {newCouponSuccess.customerName}</p>
+                        
+                        <div className={`mt-2 py-1 px-3 rounded-lg text-[10px] font-black uppercase border tracking-wider inline-block ${
+                          newCouponSuccess.status === "ACTIVE" ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-600" :
+                          newCouponSuccess.status === "REDEEMED" ? "bg-gray-100 border-gray-300 text-gray-500" :
+                          "bg-red-500/10 border-red-500/30 text-red-600"
+                        }`}>
+                          {newCouponSuccess.status}
+                          {newCouponSuccess.status === "REDEEMED" && newCouponSuccess.redeemedAt && (
+                            <span className="block text-[8px] font-bold text-gray-400 normal-case">
+                              Redeemed on {new Date(newCouponSuccess.redeemedAt).toLocaleString("en-IN")}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-2 text-[10px] text-brand-dark/75 border-y border-brand-gold/15 py-2">
+                        <div>
+                          <span className="block font-bold text-brand-dark/45 uppercase text-[8px]">Min Bill</span>
+                          <span className="font-extrabold">Rs. {newCouponSuccess.minimumBillAmount}</span>
+                        </div>
+                        <div>
+                          <span className="block font-bold text-brand-dark/45 uppercase text-[8px]">Valid Until</span>
+                          <span className="font-extrabold">{new Date(newCouponSuccess.expiresAt).toLocaleDateString("en-IN")}</span>
+                        </div>
+                      </div>
+
+                      <div className="space-y-3">
+                        <div className="bg-white p-2 rounded-xl border border-brand-gold/25 w-[140px] h-[140px] mx-auto flex items-center justify-center shadow-inner">
+                          <img
+                            src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(newCouponSuccess.secureToken)}`}
+                            alt="Coupon QR Code"
+                            className="w-[120px] h-[120px]"
+                          />
+                        </div>
+                        <div className="flex flex-col items-center justify-center space-y-1">
+                          <span className="text-[8px] font-black tracking-wider text-brand-dark/40 uppercase block mb-0.5">Coupon Code</span>
+                          <div className="flex items-center gap-1.5 bg-white border border-brand-gold/25 px-3 py-1 rounded-xl shadow-inner">
+                            <span className="text-xs font-mono font-black text-brand-dark tracking-widest">{newCouponSuccess.code}</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard.writeText(newCouponSuccess.code);
+                                alert("Coupon code copied to clipboard!");
+                              }}
+                              className="text-[9px] font-black uppercase text-brand-accent hover:underline cursor-pointer border-l border-brand-dark/10 pl-1.5 shrink-0"
+                            >
+                              Copy
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setIsCouponSuccessOpen(false)}
+                        className="flex-1 py-3 bg-brand-dark hover:bg-brand-accent text-white font-black text-xs uppercase tracking-wider rounded-xl transition-all cursor-pointer"
+                      >
+                        Close
+                      </button>
+                      <button
+                        disabled={newCouponSuccess.status !== "ACTIVE"}
+                        onClick={() => {
+                          const digits = newCouponSuccess.customerMobile.replace(/\D/g, "");
+                          const targetPhone = digits.length === 10 ? `91${digits}` : digits;
+                          const expiryStr = new Date(newCouponSuccess.expiresAt).toLocaleDateString("en-IN", {
+                            day: "numeric",
+                            month: "short",
+                            year: "numeric"
+                          });
+                          const categoryStr = newCouponSuccess.category.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, l => l.toUpperCase());
+                          const text = `Hello ${newCouponSuccess.customerName} 👋\n\nHere is your Sri Krishna Family Dhaba Gift Coupon again. 🎁\n\n🎁 GIFT COUPON\n\nCoupon Code:\n${newCouponSuccess.code}\n\nDiscount:\n${newCouponSuccess.discountPercentage}% OFF\n\nMinimum Bill:\nRs. ${newCouponSuccess.minimumBillAmount}\n\nCategory:\n${categoryStr}\n\nValid Until:\n${expiryStr}\n\nView your Gift Coupon & QR:\n${window.location.origin}/gift-coupon?token=${newCouponSuccess.secureToken}\n\nPlease present the QR code or coupon details when redeeming your offer.\n\nThank you,\nSri Krishna Family Dhaba 🙏`;
+                          const waUrl = `https://wa.me/${targetPhone}?text=${encodeURIComponent(text)}`;
+                          window.open(waUrl, "_blank");
+                          
+                          const logMsg = `couponId: ${newCouponSuccess.id}, customerId: ${newCouponSuccess.customerId}, sharedAt: ${new Date().toISOString()}`;
+                          (db as any).addAuditLog("GIFT_COUPON_SHARED", logMsg, user?.name || user?.username || "Admin");
+                        }}
+                        className={`flex-grow py-3 rounded-xl font-black text-xs uppercase tracking-widest transition-all cursor-pointer border shadow ${
+                          newCouponSuccess.status === "ACTIVE"
+                            ? "bg-brand-gold hover:bg-brand-dark text-brand-dark hover:text-white border-brand-dark/20"
+                            : "opacity-40 cursor-not-allowed bg-gray-100 text-gray-400 border-gray-300 hover:bg-gray-100 hover:text-gray-400"
+                        }`}
+                      >
+                        Share via WhatsApp
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -3394,6 +5668,12 @@ export default function AdminPortal() {
                           Reject
                         </button>
                       )}
+                      <button
+                        onClick={() => handleDeleteReview(r.id, r.name)}
+                        className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-colors cursor-pointer"
+                      >
+                        Delete
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -3459,10 +5739,17 @@ export default function AdminPortal() {
               <div className="flex justify-between items-center">
                 <div className="flex items-center gap-4">
                   <h3 className="font-display font-bold text-sm text-brand-dark uppercase tracking-wider">Customer Profiles Directory</h3>
+                  <button
+                    onClick={handleDeleteAllCustomers}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-colors cursor-pointer shadow-sm"
+                  >
+                    <Trash2 size={12} />
+                    <span>Delete All Data</span>
+                  </button>
                   {selectedCustomers.length > 0 && (
                     <button
                       onClick={() => handleDeleteCustomers(selectedCustomers)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-colors cursor-pointer"
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-colors cursor-pointer shadow-sm"
                     >
                       <Trash2 size={12} />
                       <span>Delete Selected ({selectedCustomers.length})</span>
@@ -3535,7 +5822,7 @@ export default function AdminPortal() {
                             />
                           </td>
                           <td className="py-3 px-4 font-bold">{c.name}</td>
-                          <td className="py-3 px-4 text-brand-dark/70">+91 {c.phone}</td>
+                          <td className="py-3 px-4 text-brand-dark/70">{formatPhone(c.phone)}</td>
                           <td className="py-3 px-4 text-center font-bold">{c.visits}</td>
                           <td className="py-3 px-4 text-center font-bold text-brand-accent">{c.bookingsCount}</td>
                           <td className="py-3 px-4 text-center font-bold text-brand-gold">{c.ordersCount}</td>
@@ -3570,13 +5857,27 @@ export default function AdminPortal() {
                   Review security-audited operations: who added dishes, exported databases, or modified site templates
                 </p>
               </div>
-              <button
-                onClick={loadData}
-                className="flex items-center gap-1.5 px-4 py-2 border border-brand-dark/35 hover:border-brand-accent rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer bg-white"
-              >
-                <RotateCw size={13} className="text-brand-dark" />
-                <span>REFRESH</span>
-              </button>
+              <div className="flex items-center gap-2.5">
+                <button
+                  onClick={() => {
+                    setDeleteAllTarget("audit");
+                    setIsDeleteAllOpen(true);
+                    setDeleteAllPassword("");
+                    setDeleteAllError("");
+                  }}
+                  className="flex items-center gap-1.5 px-4 py-2 border border-red-500 hover:bg-red-500 text-red-500 hover:text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer bg-white"
+                >
+                  <Trash2 size={13} />
+                  <span>DELETE DATA</span>
+                </button>
+                <button
+                  onClick={loadData}
+                  className="flex items-center gap-1.5 px-4 py-2 border border-brand-dark/35 hover:border-brand-accent rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer bg-white"
+                >
+                  <RotateCw size={13} className="text-brand-dark" />
+                  <span>REFRESH</span>
+                </button>
+              </div>
             </div>
 
             <div className="bg-white rounded-3xl border border-brand-dark/30 shadow-sm overflow-hidden p-6 space-y-6">
@@ -3590,12 +5891,15 @@ export default function AdminPortal() {
                   {selectedAuditDate && (
                     <button
                       onClick={() => {
-                        const confirmText = `Are you sure you want to delete ALL audit logs for the date: ${selectedAuditDate}?\n\nThis will permanently delete them from both local storage and the database. This action CANNOT be undone.`;
-                        if (window.confirm(confirmText)) {
-                          (db as any).deleteAuditLogsByDate(selectedAuditDate);
-                          setSelectedAuditDate(null);
-                          loadData();
-                        }
+                        setSecureDeleteConfig({
+                          title: "Delete Audit Logs By Date",
+                          itemInfo: `ALL audit logs for the date: ${selectedAuditDate}`,
+                          onConfirm: () => {
+                            (db as any).deleteAuditLogsByDate(selectedAuditDate);
+                            setSelectedAuditDate(null);
+                            loadData();
+                          }
+                        });
                       }}
                       className="text-red-600 hover:text-red-800 text-[10px] font-bold uppercase tracking-wider transition-colors cursor-pointer flex items-center gap-0.5 pr-2"
                     >
@@ -3725,6 +6029,201 @@ export default function AdminPortal() {
                           No security audit records match your query
                         </td>
                       </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === "security_audit" && (
+          <div className="space-y-8 animate-fade-in">
+            {/* Header */}
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-widest text-brand-accent block mb-1">CONSOLE PROTECTION</span>
+                <h1 className="font-display font-black text-2xl text-brand-dark uppercase tracking-wider">Login Security Audit</h1>
+                <p className="text-xs text-brand-dark/50 font-medium mt-1">
+                  Audit trail of successful and failed admin authentication attempts, public-facing IP records, and security webcam snapshots.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2.5">
+                <button
+                  onClick={() => {
+                    const cutoff = Date.now() - 60 * 24 * 60 * 60 * 1000;
+                    const eligible = loginAudits.filter(a => new Date(a.createdAt).getTime() < cutoff);
+                    if (eligible.length === 0) {
+                      alert("No login security records are currently eligible for deletion (none are older than 2 months).");
+                      return;
+                    }
+                    setIsRetentionReauthOpen(true);
+                    setRetentionReauthPassword("");
+                    setRetentionReauthError("");
+                  }}
+                  className="flex items-center gap-1.5 px-4 py-2 border border-brand-accent text-brand-accent hover:bg-brand-accent hover:text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer bg-white"
+                >
+                  <Trash2 size={13} />
+                  <span>DELETE ELIGIBLE OLD RECORDS</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setDeleteAllTarget("security_audit");
+                    setIsDeleteAllOpen(true);
+                    setDeleteAllPassword("");
+                    setDeleteAllError("");
+                  }}
+                  className="flex items-center gap-1.5 px-4 py-2 border border-red-500 hover:bg-red-500 text-red-500 hover:text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer bg-white"
+                >
+                  <Trash2 size={13} />
+                  <span>DELETE DATA</span>
+                </button>
+                <button
+                  onClick={loadData}
+                  className="flex items-center gap-1.5 px-4 py-2 border border-brand-dark/35 hover:border-brand-accent rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer bg-white"
+                >
+                  <RotateCw size={13} className="text-brand-dark" />
+                  <span>REFRESH</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Metrics */}
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-6">
+              <div className="bg-white rounded-3xl p-6 border border-brand-dark/30 shadow-sm flex items-center gap-4">
+                <div className="w-12 h-12 rounded-2xl bg-brand-bg/50 flex items-center justify-center text-brand-dark shrink-0">
+                  <ShieldAlert size={20} className="stroke-[2.5]" />
+                </div>
+                <div className="space-y-0.5">
+                  <p className="text-[9px] font-black text-brand-dark/45 uppercase tracking-wider">Total Attempts</p>
+                  <p className="font-display font-black text-2xl leading-none">{loginAudits.length}</p>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-3xl p-6 border border-brand-dark/30 shadow-sm flex items-center gap-4">
+                <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 border border-emerald-100 flex items-center justify-center shrink-0">
+                  <Check size={20} className="stroke-[2.5]" />
+                </div>
+                <div className="space-y-0.5">
+                  <p className="text-[9px] font-black text-brand-dark/45 uppercase tracking-wider">Successful</p>
+                  <p className="font-display font-black text-2xl leading-none text-emerald-600">
+                    {loginAudits.filter((a) => a.result === "SUCCESS").length}
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-3xl p-6 border border-brand-dark/30 shadow-sm flex items-center gap-4">
+                <div className="w-12 h-12 rounded-2xl bg-rose-50 text-rose-600 border border-rose-100 flex items-center justify-center shrink-0">
+                  <X size={20} className="stroke-[2.5]" />
+                </div>
+                <div className="space-y-0.5">
+                  <p className="text-[9px] font-black text-brand-dark/45 uppercase tracking-wider">Failed Attempts</p>
+                  <p className="font-display font-black text-2xl leading-none text-rose-600">
+                    {loginAudits.filter((a) => a.result === "FAILED").length}
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-3xl p-6 border border-brand-dark/30 shadow-sm flex items-center gap-4">
+                <div className="w-12 h-12 rounded-2xl bg-brand-bg/50 flex items-center justify-center text-brand-accent shrink-0">
+                  <Clock size={20} className="stroke-[2.5]" />
+                </div>
+                <div className="space-y-0.5">
+                  <p className="text-[9px] font-black text-brand-dark/45 uppercase tracking-wider">Retention Status</p>
+                  <p className="font-display font-black text-xs leading-tight text-brand-accent uppercase tracking-wider">
+                    2-Month Cutoff Active
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* List */}
+            <div className="bg-white rounded-3xl border border-brand-dark/30 shadow-sm overflow-hidden p-6">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-brand-dark/35 text-brand-dark/50 text-[10px] font-bold uppercase tracking-widest">
+                      <th className="py-3 px-4">Date & Time</th>
+                      <th className="py-3 px-4 text-center">Status</th>
+                      <th className="py-3 px-4">Identifier / Admin</th>
+                      <th className="py-3 px-4">IP Address</th>
+                      <th className="py-3 px-4">Device & Browser</th>
+                      <th className="py-3 px-4 text-center">Security Snapshot</th>
+                      <th className="py-3 px-4 text-center w-16">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loginAudits.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="py-8 text-center text-brand-dark/40 font-medium">
+                          No login attempts logged.
+                        </td>
+                      </tr>
+                    ) : (
+                      loginAudits.map((item) => (
+                        <tr key={item.id} className="border-b border-brand-dark/20 hover:bg-brand-bg/10 transition-colors">
+                          <td className="py-3.5 px-4 whitespace-nowrap font-semibold">
+                            {new Date(item.timestamp).toLocaleString()}
+                          </td>
+                          <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                            <span className={`inline-block px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${
+                              item.result === "SUCCESS"
+                                ? "text-emerald-700 bg-emerald-50 border border-emerald-500/20"
+                                : "text-rose-700 bg-rose-50 border border-rose-500/20"
+                            }`}>
+                              {item.result}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 whitespace-nowrap font-bold text-brand-dark/85">
+                            {item.result === "SUCCESS" ? item.adminUid || "admin" : "— (Failed Credentials)"}
+                          </td>
+                          <td className="py-3.5 px-4 whitespace-nowrap font-mono text-[11px] text-brand-accent hover:underline cursor-pointer">
+                            <button
+                              onClick={() => handleIpClick(item.ipAddress)}
+                              className="text-brand-accent hover:underline cursor-pointer font-mono text-left bg-transparent border-none p-0 cursor-pointer"
+                              title="Click to geolocate on Google Maps"
+                            >
+                              {item.ipAddress}
+                            </button>
+                          </td>
+                          <td className="py-3.5 px-4 whitespace-nowrap text-brand-dark/70 text-[11px]">
+                            {item.deviceType} • {item.browser}
+                          </td>
+                          <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                            {item.snapshotStatus === "SUCCESS" && item.snapshotUrl ? (
+                              <button
+                                onClick={() => setActiveViewImage(item.snapshotUrl!)}
+                                className="flex items-center gap-1 mx-auto px-2 py-1 bg-brand-bg hover:bg-brand-gold/25 border border-brand-dark/20 text-brand-dark rounded-lg text-[9px] font-black uppercase tracking-wider transition-colors cursor-pointer"
+                              >
+                                <Camera size={10} />
+                                <span>VIEW IMAGE</span>
+                              </button>
+                            ) : item.snapshotStatus === "PERMISSION_DENIED" ? (
+                              <span className="font-bold text-red-600 uppercase text-xs tracking-wider">
+                                DENIED
+                              </span>
+                            ) : (
+                              <span className="text-brand-dark/30">—</span>
+                            )}
+                          </td>
+                          <td className="py-3.5 px-4 text-center">
+                            <button
+                              onClick={() => {
+                                setSecureDeleteConfig({
+                                  itemInfo: `Login Attempt: ${item.loginAttemptId} (${item.result} - ${new Date(item.timestamp).toLocaleString()})`,
+                                  onConfirm: async () => {
+                                    await handleDeleteLoginAudit(item);
+                                  }
+                                });
+                              }}
+                              className="p-1 text-red-500 hover:bg-red-50 rounded transition-colors cursor-pointer"
+                              title="Delete Record"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))
                     )}
                   </tbody>
                 </table>
@@ -4061,49 +6560,44 @@ export default function AdminPortal() {
         </div>
       )}
 
-      {/* Menu Delete Verification Modal */}
-      {dishToDelete && (
+      {/* Secure Delete Verification Modal */}
+      {secureDeleteConfig && (
         <div className="fixed inset-0 bg-brand-dark/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl p-6 border border-brand-dark/30 w-full max-w-md space-y-4 shadow-2xl">
             <div className="flex justify-between items-center">
               <div className="flex items-center gap-2 text-red-600">
                 <ShieldAlert size={20} />
                 <h3 className="font-display font-black text-sm uppercase tracking-wider">
-                  Authentication Required
+                  Confirm Deletion
                 </h3>
               </div>
               <button 
-                onClick={() => setDishToDelete(null)} 
+                onClick={() => {
+                  if (!secureDeleteIsVerifying) {
+                    setSecureDeleteConfig(null);
+                    setSecureDeletePassword("");
+                    setSecureDeleteError("");
+                  }
+                }} 
                 className="p-1 hover:bg-brand-bg rounded-lg cursor-pointer"
+                disabled={secureDeleteIsVerifying}
               >
                 <X size={18} />
               </button>
             </div>
 
             <div className="text-xs text-brand-dark/70 space-y-2">
-              <p>
-                To delete the menu item <strong className="text-brand-dark">{dishToDelete.title}</strong>, please authenticate by entering your admin credentials.
-              </p>
+              <p>You are about to permanently delete:</p>
+              <div className="p-3 bg-brand-bg/40 border border-brand-dark/10 rounded-xl font-bold text-brand-dark leading-relaxed break-words">
+                {secureDeleteConfig.itemInfo}
+              </div>
+              <p>For security, enter your login password to continue.</p>
             </div>
 
-            <form onSubmit={handleConfirmDeleteDish} className="space-y-4 text-xs">
+            <form onSubmit={handleConfirmSecureDelete} className="space-y-4 text-xs">
               <div className="space-y-1.5">
                 <label className="text-[10px] font-bold text-brand-dark uppercase tracking-wider block">
-                  Admin Username
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. owner"
-                  value={deleteUsername}
-                  onChange={(e) => setDeleteUsername(e.target.value)}
-                  className="w-full bg-brand-bg border border-brand-dark/35 rounded-xl py-2 px-3 focus:outline-none focus:border-brand-dark/70"
-                  required
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-brand-dark uppercase tracking-wider block">
-                  Admin Password
+                  Password
                 </label>
                 <div className="relative">
                   <span className="absolute inset-y-0 left-3 flex items-center text-brand-dark/30">
@@ -4111,34 +6605,53 @@ export default function AdminPortal() {
                   </span>
                   <input
                     type="password"
-                    placeholder="Enter password"
-                    value={deletePassword}
-                    onChange={(e) => setDeletePassword(e.target.value)}
-                    className="w-full bg-brand-bg border border-brand-dark/35 rounded-xl py-2 pl-9 pr-3 focus:outline-none focus:border-brand-dark/70"
+                    placeholder="Enter login password"
+                    value={secureDeletePassword}
+                    onChange={(e) => setSecureDeletePassword(e.target.value)}
+                    className="w-full bg-brand-bg border border-brand-dark/35 rounded-xl py-2 pl-9 pr-3 focus:outline-none focus:border-brand-dark/70 font-bold"
                     required
+                    disabled={secureDeleteIsVerifying}
                   />
                 </div>
               </div>
 
-              {deleteError && (
+              {secureDeleteError && (
                 <div className="p-3 bg-red-50 border border-red-200 text-red-600 rounded-xl text-xs font-semibold">
-                  {deleteError}
+                  {secureDeleteError}
                 </div>
               )}
 
               <div className="flex gap-3 pt-2">
                 <button
                   type="button"
-                  onClick={() => setDishToDelete(null)}
+                  onClick={() => {
+                    setSecureDeleteConfig(null);
+                    setSecureDeletePassword("");
+                    setSecureDeleteError("");
+                  }}
                   className="flex-1 py-3 bg-brand-bg hover:bg-brand-dark/5 text-brand-dark border border-brand-dark/35 rounded-xl text-xs font-bold tracking-wider uppercase transition-colors cursor-pointer"
+                  disabled={secureDeleteIsVerifying || secureDeleteIsDeleting}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold tracking-wider uppercase transition-colors cursor-pointer"
+                  className="flex-1 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold tracking-wider uppercase transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                  disabled={secureDeleteIsVerifying || secureDeleteIsDeleting}
                 >
-                  Confirm Delete
+                  {secureDeleteIsVerifying ? (
+                    <>
+                      <RotateCw size={12} className="animate-spin" />
+                      <span>VERIFYING...</span>
+                    </>
+                  ) : secureDeleteIsDeleting ? (
+                    <>
+                      <RotateCw size={12} className="animate-spin" />
+                      <span>DELETING...</span>
+                    </>
+                  ) : (
+                    <span>Verify & Delete</span>
+                  )}
                 </button>
               </div>
             </form>
@@ -4379,6 +6892,395 @@ export default function AdminPortal() {
               </button>
             </form>
           </div>
+        </div>
+      )}
+
+      {/* Login Security Audit verification gate */}
+      {isSecurityReauthOpen && (
+        <div className="fixed inset-0 bg-brand-dark/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 border border-brand-dark/30 w-full max-w-md space-y-4 shadow-2xl">
+            <div className="flex justify-between items-center">
+              <div className="flex items-center gap-2 text-brand-dark">
+                <Lock size={20} className="text-brand-gold fill-brand-gold/15" />
+                <h3 className="font-display font-black text-sm uppercase tracking-wider">
+                  Security Verification Required
+                </h3>
+              </div>
+              <button 
+                onClick={() => setIsSecurityReauthOpen(false)} 
+                className="p-1 hover:bg-brand-bg rounded-lg cursor-pointer"
+                disabled={securityReauthIsVerifying}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="text-xs text-brand-dark/70 space-y-2">
+              <p>Login security records contain sensitive information.</p>
+              <p>Enter your current login password to continue.</p>
+            </div>
+
+            <form onSubmit={async (e) => {
+              e.preventDefault();
+              setSecurityReauthError("");
+              setSecurityReauthIsVerifying(true);
+              try {
+                const savedUser = sessionStorage.getItem("skd_admin_session");
+                if (!savedUser) throw new Error("No active session.");
+                const parsed = JSON.parse(savedUser);
+                const validPass = `${parsed.username}123`;
+                if (securityReauthPassword !== validPass) {
+                  throw new Error("Wrong password.");
+                }
+                
+                setIsSecurityAuditUnlocked(true);
+                setIsSecurityReauthOpen(false);
+                setActiveTab("security_audit");
+              } catch (err) {
+                setSecurityReauthError("Invalid admin password. Access denied.");
+              } finally {
+                setSecurityReauthIsVerifying(false);
+              }
+            }} className="space-y-4 text-xs">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-brand-dark uppercase tracking-wider block">
+                  Password
+                </label>
+                <div className="relative">
+                  <span className="absolute inset-y-0 left-3 flex items-center text-brand-dark/30">
+                    <Lock size={14} />
+                  </span>
+                  <input
+                    type="password"
+                    placeholder="Enter current password"
+                    value={securityReauthPassword}
+                    onChange={(e) => setSecurityReauthPassword(e.target.value)}
+                    className="w-full bg-brand-bg border border-brand-dark/35 rounded-xl py-2 pl-9 pr-3 focus:outline-none focus:border-brand-dark/70 font-bold"
+                    required
+                    disabled={securityReauthIsVerifying}
+                  />
+                </div>
+              </div>
+
+              {securityReauthError && (
+                <div className="p-3 bg-red-50 border border-red-200 text-red-600 rounded-xl text-xs font-semibold">
+                  {securityReauthError}
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsSecurityReauthOpen(false)}
+                  className="flex-1 py-3.5 bg-brand-dark/5 hover:bg-brand-dark/10 text-brand-dark rounded-xl text-xs font-black tracking-widest uppercase transition-colors cursor-pointer"
+                  disabled={securityReauthIsVerifying}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-3.5 bg-brand-accent hover:bg-brand-dark text-white rounded-xl text-xs font-black tracking-widest uppercase transition-colors cursor-pointer"
+                  disabled={securityReauthIsVerifying}
+                >
+                  {securityReauthIsVerifying ? "Verifying..." : "Verify & Continue"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Two-month cleanup retention reminder */}
+      {retentionPopupOpen && (
+        <div className="fixed inset-0 bg-brand-dark/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#FAF9F6] rounded-3xl p-6 border border-brand-dark/20 w-full max-w-md space-y-4 shadow-2xl text-brand-dark text-center">
+            <div className="w-12 h-12 rounded-full bg-brand-gold/10 border border-brand-gold flex items-center justify-center text-brand-gold mx-auto">
+              <ShieldAlert size={24} />
+            </div>
+            <div className="space-y-1.5">
+              <h3 className="font-display font-black text-sm uppercase tracking-wider text-brand-dark">
+                Security Data Cleanup
+              </h3>
+              <p className="text-xs text-brand-dark/70 leading-relaxed font-semibold">
+                Login security records have reached the configured 2-month retention period.
+              </p>
+              <p className="text-[10px] text-brand-dark/50 font-medium">
+                For privacy and storage management, old login security records can now be permanently deleted.
+              </p>
+            </div>
+            <div className="flex gap-3 pt-2 text-xs">
+              <button
+                onClick={() => setRetentionPopupOpen(false)}
+                className="flex-1 py-3 bg-brand-dark/5 hover:bg-brand-dark/10 text-brand-dark font-black tracking-wider uppercase rounded-xl cursor-pointer animate-pulse"
+              >
+                Not Now
+              </button>
+              <button
+                onClick={() => {
+                  setRetentionPopupOpen(false);
+                  setIsRetentionReauthOpen(true);
+                  setRetentionReauthPassword("");
+                  setRetentionReauthError("");
+                }}
+                className="flex-1 py-3 bg-brand-accent hover:bg-brand-dark text-white font-black tracking-wider uppercase rounded-xl cursor-pointer"
+              >
+                Review & Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Retention deletion authentication modal */}
+      {isRetentionReauthOpen && (
+        <div className="fixed inset-0 bg-brand-dark/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 border border-brand-dark/30 w-full max-w-md space-y-4 shadow-2xl">
+            <div className="flex justify-between items-center">
+              <div className="flex items-center gap-2 text-red-600">
+                <ShieldAlert size={20} />
+                <h3 className="font-display font-black text-sm uppercase tracking-wider">
+                  Permanent Security Data Deletion
+                </h3>
+              </div>
+              <button 
+                onClick={() => setIsRetentionReauthOpen(false)} 
+                className="p-1 hover:bg-brand-bg rounded-lg cursor-pointer"
+                disabled={retentionReauthIsVerifying || isRetentionDeleting}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="text-xs text-brand-dark/70 space-y-2.5">
+              <p>You are about to permanently delete eligible old login security records and their associated snapshots.</p>
+              <p className="font-bold text-brand-accent">This action cannot be undone.</p>
+              
+              <div className="p-3 bg-brand-bg/50 border border-brand-dark/10 rounded-xl space-y-1 font-semibold text-brand-dark text-[11px]">
+                <div>Records eligible for deletion: <span className="font-black text-brand-accent">{
+                  loginAudits.filter(a => new Date(a.createdAt).getTime() < (Date.now() - 60 * 24 * 60 * 60 * 1000)).length
+                }</span></div>
+                {loginAudits.filter(a => new Date(a.createdAt).getTime() < (Date.now() - 60 * 24 * 60 * 60 * 1000)).length > 0 && (
+                  <>
+                    <div>Oldest: <span className="font-black">{
+                      new Date(Math.min(...loginAudits.filter(a => new Date(a.createdAt).getTime() < (Date.now() - 60 * 24 * 60 * 60 * 1000)).map(a => new Date(a.createdAt).getTime()))).toLocaleDateString()
+                    }</span></div>
+                    <div>Cutoff: <span className="font-black">{
+                      new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toLocaleDateString()
+                    }</span></div>
+                  </>
+                )}
+              </div>
+              <p>Enter your current login password to verify authority.</p>
+            </div>
+
+            <form onSubmit={async (e) => {
+              e.preventDefault();
+              setRetentionReauthError("");
+              setRetentionReauthIsVerifying(true);
+              try {
+                const savedUser = sessionStorage.getItem("skd_admin_session");
+                if (!savedUser) throw new Error("No active session.");
+                const parsed = JSON.parse(savedUser);
+                const validPass = `${parsed.username}123`;
+                if (retentionReauthPassword !== validPass) {
+                  throw new Error("Wrong password.");
+                }
+                
+                setIsRetentionDeleting(true);
+                const cutoff = Date.now() - 60 * 24 * 60 * 60 * 1000;
+                const eligible = loginAudits.filter(a => new Date(a.createdAt).getTime() < cutoff);
+                
+                for (const item of eligible) {
+                  if (item.snapshotUrl && item.snapshotUrl.includes("security/login-audit")) {
+                    try {
+                      const imageRef = ref(storage, `security/login-audit/${item.loginAttemptId}.jpg`);
+                      await deleteObject(imageRef);
+                    } catch (storageErr) {
+                      console.warn("Storage deletion error during retention run:", storageErr);
+                    }
+                  }
+                  await (db as any).deleteLoginAudit(item.id);
+                }
+
+                (db as any).addAuditLog("Security Retention Executed", `Permanently cleaned ${eligible.length} expired login security records.`);
+                loadData();
+                setIsRetentionReauthOpen(false);
+                alert(`Retention run complete. ${eligible.length} security audit documents and their images successfully deleted.`);
+              } catch (err) {
+                setRetentionReauthError("Verification failed. Incorrect password.");
+              } finally {
+                setRetentionReauthIsVerifying(false);
+                setIsRetentionDeleting(false);
+              }
+            }} className="space-y-4 text-xs">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-brand-dark uppercase tracking-wider block">
+                  Password
+                </label>
+                <div className="relative">
+                  <span className="absolute inset-y-0 left-3 flex items-center text-brand-dark/30">
+                    <Lock size={14} />
+                  </span>
+                  <input
+                    type="password"
+                    placeholder="Enter current password"
+                    value={retentionReauthPassword}
+                    onChange={(e) => setRetentionReauthPassword(e.target.value)}
+                    className="w-full bg-brand-bg border border-brand-dark/35 rounded-xl py-2 pl-9 pr-3 focus:outline-none focus:border-brand-dark/70 font-bold"
+                    required
+                    disabled={retentionReauthIsVerifying || isRetentionDeleting}
+                  />
+                </div>
+              </div>
+
+              {retentionReauthError && (
+                <div className="p-3 bg-red-50 border border-red-200 text-red-600 rounded-xl text-xs font-semibold">
+                  {retentionReauthError}
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsRetentionReauthOpen(false)}
+                  className="flex-1 py-3.5 bg-brand-dark/5 hover:bg-brand-dark/10 text-brand-dark rounded-xl text-xs font-black tracking-widest uppercase transition-colors cursor-pointer"
+                  disabled={retentionReauthIsVerifying || isRetentionDeleting}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-3.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-black tracking-widest uppercase transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                  disabled={retentionReauthIsVerifying || isRetentionDeleting}
+                >
+                  {retentionReauthIsVerifying ? "VERIFYING..." : isRetentionDeleting ? "DELETING..." : "Verify & Delete"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete All Confirmation Modal */}
+      {isDeleteAllOpen && (
+        <div className="fixed inset-0 bg-brand-dark/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 border border-brand-dark/30 w-full max-w-md space-y-4 shadow-2xl">
+            <div className="flex justify-between items-center">
+              <div className="flex items-center gap-2 text-red-600">
+                <ShieldAlert size={20} />
+                <h3 className="font-display font-black text-sm uppercase tracking-wider">
+                  Confirm Data Deletion
+                </h3>
+              </div>
+              <button 
+                onClick={() => {
+                  setIsDeleteAllOpen(false);
+                  setDeleteAllPassword("");
+                  setDeleteAllError("");
+                }} 
+                className="p-1 hover:bg-brand-bg rounded-lg cursor-pointer"
+                disabled={isDeletingAll}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="text-xs text-brand-dark/70 space-y-2.5">
+              <p>
+                You are about to permanently delete <span className="font-bold text-red-600">ALL</span> records on this page:
+              </p>
+              <div className="p-3 bg-red-50 border border-red-200/50 rounded-xl font-bold text-red-600 text-[11px] text-center uppercase tracking-wider">
+                {deleteAllTarget === "bookings" && "All Dining Reservation Records"}
+                {deleteAllTarget === "orders" && "All WhatsApp Delivery Order Logs"}
+                {deleteAllTarget === "audit" && "All Audit Trail Operation Logs"}
+                {deleteAllTarget === "security_audit" && "All Login Security Audit Logs"}
+              </div>
+              <p className="font-bold text-brand-accent">
+                This action is permanent and cannot be undone. Please enter your login password to authorize this operation.
+              </p>
+            </div>
+
+            <form onSubmit={handleConfirmDeleteAll} className="space-y-4 text-xs">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-brand-dark uppercase tracking-wider block">
+                  Login Password
+                </label>
+                <div className="relative">
+                  <span className="absolute inset-y-0 left-3 flex items-center text-brand-dark/30">
+                    <Lock size={14} />
+                  </span>
+                  <input
+                    type="password"
+                    placeholder="Enter current password"
+                    value={deleteAllPassword}
+                    onChange={(e) => setDeleteAllPassword(e.target.value)}
+                    className="w-full bg-brand-bg border border-brand-dark/35 rounded-xl py-2 pl-9 pr-3 focus:outline-none focus:border-brand-dark/70 font-bold"
+                    required
+                    disabled={isDeletingAll}
+                  />
+                </div>
+              </div>
+
+              {deleteAllError && (
+                <div className="p-3 bg-red-50 border border-red-200 text-red-600 rounded-xl text-xs font-semibold">
+                  {deleteAllError}
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsDeleteAllOpen(false);
+                    setDeleteAllPassword("");
+                    setDeleteAllError("");
+                  }}
+                  className="flex-1 py-3.5 bg-brand-dark/5 hover:bg-brand-dark/10 text-brand-dark rounded-xl text-xs font-black tracking-widest uppercase transition-colors cursor-pointer"
+                  disabled={isDeletingAll}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-3.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-black tracking-widest uppercase transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                  disabled={isDeletingAll}
+                >
+                  {isDeletingAll ? "DELETING..." : "Verify & Delete All"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Snapshot Lightbox Viewer */}
+      {activeViewImage && (
+        <div className="fixed inset-0 bg-brand-dark/95 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 border border-brand-dark/30 w-full max-w-sm space-y-4 shadow-2xl flex flex-col items-center">
+            <h3 className="font-display font-black text-xs text-brand-dark uppercase tracking-wider self-start flex items-center gap-1.5">
+              <Camera size={14} className="text-brand-accent" />
+              <span>Login Security Snapshot</span>
+            </h3>
+            <div className="w-full aspect-[4/3] rounded-2xl bg-brand-dark overflow-hidden border border-brand-dark/20 relative shadow-inner">
+              <img src={activeViewImage} alt="Audit Snapshot" className="w-full h-full object-cover" />
+            </div>
+            <button
+              onClick={() => setActiveViewImage(null)}
+              className="w-full py-3 bg-brand-dark hover:bg-brand-accent text-white font-black tracking-widest uppercase text-xs rounded-xl cursor-pointer transition-colors"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {stockMessage && (
+        <div className={`fixed bottom-4 right-4 z-50 px-4 py-3 rounded-2xl shadow-lg border text-xs font-black uppercase tracking-wider animate-bounce ${
+          stockMessage.isError
+            ? "bg-red-500 text-white border-red-600"
+            : "bg-emerald-500 text-white border-emerald-600"
+        }`}>
+          {stockMessage.text}
         </div>
       )}
     </div>

@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowRight, Star, Clock, Phone, MapPin, X, Mail, ChevronDown } from "lucide-react";
+import { ArrowRight, Star, Clock, Phone, MapPin, X, Mail, ChevronDown, ShieldAlert, Sparkles } from "lucide-react";
 import DishCard from "../components/DishCard";
 import TestimonialCard from "../components/TestimonialCard";
 import WhatsAppIcon from "../components/WhatsAppIcon";
@@ -29,7 +29,7 @@ const branches: Branch[] = [
     hours: "Mon – Sun: 11:30 AM – 11:45 PM",
     mapSrc:
       "https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3805.378779646875!2d78.3924395!3d17.5254461!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x3bcb8f0052362da1%3A0xd093fe41bf080e4d!2sSri%20Krishna%20Family%20Dhaba!5e0!3m2!1sen!2sin!4v1704481029192!5m2!1sen!2sin",
-    googleMapsUrl: "https://www.google.com/maps/place/Sri+Krishna+Family+Dhaba/@17.5254461,78.3950244,17z/data=!3m1!4b1!4m6!3m5!1s0x3bcb8f0052362da1:0xd093fe41bf080e4d!8m2!3d17.5254461!4d78.3950244!16s%2Fg%2F11wvt0qq4l"
+    googleMapsUrl: "https://maps.app.goo.gl/gCPA6gsC3D5yoXos6"
   },
   {
     id: "aziznagar",
@@ -40,7 +40,7 @@ const branches: Branch[] = [
     hours: "Mon – Sun: 11:00 AM – 11:30 PM",
     mapSrc:
       "https://maps.google.com/maps?q=17.3484252,78.3184651(Balaji%20Chilkur%20Family%20Dhaba)&ll=17.3518,78.3184651&z=16&hl=en&output=embed",
-    googleMapsUrl: "https://www.google.com/maps/place/Balaji+Chilkur+Family+Dhaba/@17.3484252,78.3184651,15z/data=!4m2!3m1!1s0x0:0xbf2c80be0a597a76?sa=X"
+    googleMapsUrl: "https://maps.app.goo.gl/geAW7347GGMi1GXH6"
   }
 ];
 
@@ -48,15 +48,39 @@ const branches: Branch[] = [
 
 // Testimonials loaded dynamically from database
 
-export default function Home() {
+export interface HomeProps {
+  previewData?: any;
+}
+
+export default function Home({ previewData }: HomeProps) {
   const navigate = useNavigate();
   const [selectedReview, setSelectedReview] = useState<Review | null>(null);
   const [activeBranch, setActiveBranch] = useState<string>("pragathinagar");
   const [signatureDishes, setSignatureDishes] = useState<Dish[]>([]);
   const [testimonials, setTestimonials] = useState<Review[]>([]);
   const [settings, setSettings] = useState<any>(null);
+  const [videoError, setVideoError] = useState(false);
 
   useEffect(() => {
+    if (previewData) {
+      setSettings(previewData);
+      const allMenu = db.getMenu();
+      let signatures = allMenu.filter((dish) => dish.isSignature);
+      if (signatures.length === 0) {
+        signatures = [
+          allMenu.find((dish) => dish.id === "spl-starter-7"),
+          allMenu.find((dish) => dish.id === "spl-starter-4"),
+          allMenu.find((dish) => dish.id === "starter-9"),
+          allMenu.find((dish) => dish.id === "biryani-6")
+        ].filter((dish): dish is Dish => !!dish);
+      }
+      setSignatureDishes(signatures);
+
+      const approved = db.getReviews().filter((r) => r.status === "Approved");
+      setTestimonials(approved);
+      return;
+    }
+
     db.incrementWebsiteVisits();
     const loadSettings = () => setSettings(db.getSettings());
     loadSettings();
@@ -107,6 +131,9 @@ export default function Home() {
   const mainEmail = settings?.contactEmail || "contact@srikrishnadhaba.com";
   const cleanPhone = mainPhone.replace(/[^0-9]/g, "");
   const whatsappNum = settings?.whatsappNumber ? settings.whatsappNumber.replace(/[^0-9]/g, "") : "919032292421";
+  const instagramUrl = settings?.instagramUrl || "https://instagram.com";
+  const facebookUrl = settings?.facebookUrl || "https://facebook.com";
+  const zomatoUrl = settings?.zomatoUrl || "https://www.zomato.com/hyderabad/search?q=Sri%20Krishna%20Family%20Dhaba";
 
   const scrollToNext = () => {
     const nextSection = document.getElementById("signature-dishes");
@@ -122,35 +149,54 @@ export default function Home() {
 
       {/* Hero Section (Clean Video Displayer Showcase) */}
       <section className="relative w-full h-[100dvh] md:h-auto md:aspect-video md:min-h-[80vh] bg-brand-dark overflow-hidden z-10 snap-child flex items-center justify-center">
-        {/* Blurred background video for filling portrait screens on mobile */}
-        <video
-          autoPlay
-          loop
-          muted
-          playsInline
-          className="absolute inset-0 w-full h-full object-cover blur-3xl opacity-35 scale-105 pointer-events-none md:hidden"
-        >
-          <source 
-            src="https://res.cloudinary.com/or5e9kak/video/upload/v1783771254/WhatsApp_Video_2026-07-11_at_10.04.14_dnyzq3.mp4" 
-            type="video/mp4" 
-          />
-        </video>
-
-        {/* Main foreground video */}
-        <video
-          autoPlay
-          loop
-          muted
-          playsInline
-          className="w-full h-full object-contain md:object-cover relative z-10"
-        >
-          <source 
-            src="https://res.cloudinary.com/or5e9kak/video/upload/v1783771254/WhatsApp_Video_2026-07-11_at_10.04.14_dnyzq3.mp4" 
-            type="video/mp4" 
-          />
-          Your browser does not support the video tag.
-        </video>
-
+        {videoError ? (
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6 bg-brand-dark text-brand-bg space-y-3 z-20">
+            <span className="w-12 h-12 rounded-full bg-red-500/10 border border-red-500/25 flex items-center justify-center text-red-500">
+              <ShieldAlert size={24} />
+            </span>
+            <p className="font-display font-black text-xs uppercase tracking-widest text-brand-gold">
+              Hero video could not be loaded
+            </p>
+            <p className="text-[10px] text-brand-bg/60 max-w-xs">
+              Please check the URL in the CMS console. Rendered rest of the page.
+            </p>
+          </div>
+        ) : (
+          <>
+            {/* Blurred background video for filling portrait screens on mobile */}
+            <video
+              key={settings?.heroVideo || "default"}
+              autoPlay
+              loop
+              muted
+              playsInline
+              onError={() => setVideoError(true)}
+              className="absolute inset-0 w-full h-full object-cover blur-3xl opacity-35 scale-105 pointer-events-none md:hidden"
+            >
+              <source 
+                src={settings?.heroVideo || "https://res.cloudinary.com/or5e9kak/video/upload/v1783771254/WhatsApp_Video_2026-07-11_at_10.04.14_dnyzq3.mp4"} 
+                type="video/mp4" 
+              />
+            </video>
+     
+            {/* Main foreground video */}
+            <video
+              key={settings?.heroVideo || "default"}
+              autoPlay
+              loop
+              muted
+              playsInline
+              onError={() => setVideoError(true)}
+              className="w-full h-full object-contain md:object-cover relative z-10"
+            >
+              <source 
+                src={settings?.heroVideo || "https://res.cloudinary.com/or5e9kak/video/upload/v1783771254/WhatsApp_Video_2026-07-11_at_10.04.14_dnyzq3.mp4"} 
+                type="video/mp4" 
+              />
+              Your browser does not support the video tag.
+            </video>
+          </>
+        )}
 
         {/* Scroll Down Indicator for Mobile */}
         <div 
@@ -307,9 +353,6 @@ export default function Home() {
         <div className="noise-overlay opacity-5" />
         
         <div className="max-w-4xl mx-auto px-6 text-center relative z-10 space-y-6">
-          <span className="text-[11px] font-black tracking-widest text-brand-gold uppercase bg-brand-gold/10 border border-brand-gold/20 px-3.5 py-1 rounded-full">
-            VIP Dining Experience
-          </span>
           <h2 className="font-display font-extrabold text-3xl sm:text-4xl md:text-5xl text-brand-bg tracking-tight">
             Reserve Your Table
           </h2>
@@ -321,11 +364,12 @@ export default function Home() {
             <div className="absolute bottom-3 left-3 w-4 h-4 border-b-2 border-l-2 border-brand-gold" />
             <div className="absolute bottom-3 right-3 w-4 h-4 border-b-2 border-r-2 border-brand-gold" />
             
-            <p className="text-sm sm:text-base font-bold text-brand-gold tracking-wide uppercase mb-2">
-              🎁 WEBSITE EXCLUSIVE OFFER
+            <p className="text-sm sm:text-base font-bold text-brand-gold tracking-wide uppercase mb-2 flex items-center justify-center gap-1.5">
+              <Sparkles size={16} className="text-brand-gold shrink-0 animate-pulse" />
+              <span>Website Exclusive Offer</span>
             </p>
             <p className="text-base sm:text-lg md:text-xl font-display text-brand-bg/95 leading-relaxed italic">
-              "{settings?.reservationPromoText || `Reserve your table through our website and receive ${settings?.discountPercent ?? 10}% OFF on your final dining bill.`}"
+              "{db.formatPromoText(settings?.reservationPromoText || "Reserve your table through our website and receive {discount}% OFF on your final dining bill.", settings?.discountPercent ?? 10)}"
             </p>
           </div>
           
@@ -359,77 +403,77 @@ export default function Home() {
           {/* Two-Column Grid: Contact Cards + Order Online */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-start mt-8">
             {/* Left Column: Grid of Contact Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-3 sm:gap-4">
               {/* WhatsApp */}
               <a
                 href={`https://wa.me/${whatsappNum}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="bg-white rounded-2xl p-6 shadow-sm border border-brand-gold/10 hover:shadow-md transition-all duration-300 flex flex-col items-center text-center group"
+                className="bg-white rounded-2xl p-4 sm:p-5 shadow-sm border border-brand-gold/10 hover:shadow-md transition-all duration-300 flex flex-col items-center text-center group"
               >
-                <div className="w-12 h-12 rounded-full bg-emerald-50 text-emerald-500 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                  <WhatsAppIcon size={22} />
+                <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-500 flex items-center justify-center mb-2.5 group-hover:scale-110 transition-transform">
+                  <WhatsAppIcon size={18} />
                 </div>
-                <h3 className="font-sans font-bold text-brand-dark text-sm">WhatsApp</h3>
-                <p className="text-xs text-brand-dark/50 mt-1">Chat with us</p>
+                <h3 className="font-sans font-bold text-brand-dark text-xs sm:text-sm">WhatsApp</h3>
+                <p className="text-[10px] sm:text-xs text-brand-dark/50 mt-0.5">Chat with us</p>
               </a>
 
               {/* Instagram */}
               <a
-                href="https://instagram.com"
+                href={instagramUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="bg-white rounded-2xl p-6 shadow-sm border border-brand-gold/10 hover:shadow-md transition-all duration-300 flex flex-col items-center text-center group"
+                className="bg-white rounded-2xl p-4 sm:p-5 shadow-sm border border-brand-gold/10 hover:shadow-md transition-all duration-300 flex flex-col items-center text-center group"
               >
-                <div className="w-12 h-12 rounded-full bg-pink-50 text-pink-500 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                  <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+                <div className="w-10 h-10 rounded-full bg-pink-50 text-pink-500 flex items-center justify-center mb-2.5 group-hover:scale-110 transition-transform">
+                  <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
                     <rect width="20" height="20" x="2" y="2" rx="5" ry="5" />
                     <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
                     <line x1="17.5" x2="17.51" y1="6.5" y2="6.5" />
                   </svg>
                 </div>
-                <h3 className="font-sans font-bold text-brand-dark text-sm">Instagram</h3>
-                <p className="text-xs text-brand-dark/50 mt-1">Follow updates</p>
+                <h3 className="font-sans font-bold text-brand-dark text-xs sm:text-sm">Instagram</h3>
+                <p className="text-[10px] sm:text-xs text-brand-dark/50 mt-0.5">Follow updates</p>
               </a>
 
               {/* Facebook */}
               <a
-                href="https://facebook.com"
+                href={facebookUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="bg-white rounded-2xl p-6 shadow-sm border border-brand-gold/10 hover:shadow-md transition-all duration-300 flex flex-col items-center text-center group"
+                className="bg-white rounded-2xl p-4 sm:p-5 shadow-sm border border-brand-gold/10 hover:shadow-md transition-all duration-300 flex flex-col items-center text-center group"
               >
-                <div className="w-12 h-12 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                  <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+                <div className="w-10 h-10 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mb-2.5 group-hover:scale-110 transition-transform">
+                  <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z" />
                   </svg>
                 </div>
-                <h3 className="font-sans font-bold text-brand-dark text-sm">Facebook</h3>
-                <p className="text-xs text-brand-dark/50 mt-1">Join community</p>
+                <h3 className="font-sans font-bold text-brand-dark text-xs sm:text-sm">Facebook</h3>
+                <p className="text-[10px] sm:text-xs text-brand-dark/50 mt-0.5">Join community</p>
               </a>
 
               {/* Call Us */}
               <a
                 href={`tel:${cleanPhone}`}
-                className="bg-white rounded-2xl p-6 shadow-sm border border-brand-gold/10 hover:shadow-md transition-all duration-300 flex flex-col items-center text-center group"
+                className="bg-white rounded-2xl p-4 sm:p-5 shadow-sm border border-brand-gold/10 hover:shadow-md transition-all duration-300 flex flex-col items-center text-center group"
               >
-                <div className="w-12 h-12 rounded-full bg-amber-50 text-brand-gold flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                  <Phone size={20} className="fill-brand-gold/10" />
+                <div className="w-10 h-10 rounded-full bg-amber-50 text-brand-gold flex items-center justify-center mb-2.5 group-hover:scale-110 transition-transform">
+                  <Phone size={18} className="fill-brand-gold/10" />
                 </div>
-                <h3 className="font-sans font-bold text-brand-dark text-sm">Call Us</h3>
-                <p className="text-xs text-brand-accent font-bold mt-1">{mainPhone}</p>
+                <h3 className="font-sans font-bold text-brand-dark text-xs sm:text-sm">Call Us</h3>
+                <p className="text-[10px] sm:text-xs text-brand-accent font-bold mt-0.5">{mainPhone}</p>
               </a>
 
               {/* Mail Us */}
               <a
                 href={`mailto:${mainEmail}`}
-                className="bg-white rounded-2xl p-6 shadow-sm border border-brand-gold/10 hover:shadow-md transition-all duration-300 flex flex-col items-center text-center sm:col-span-2 group"
+                className="bg-white rounded-2xl p-4 sm:p-5 shadow-sm border border-brand-gold/10 hover:shadow-md transition-all duration-300 flex flex-col items-center text-center col-span-2 group"
               >
-                <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-500 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                  <Mail size={20} />
+                <div className="w-10 h-10 rounded-full bg-rose-50 text-rose-500 flex items-center justify-center mb-2.5 group-hover:scale-110 transition-transform">
+                  <Mail size={18} />
                 </div>
-                <h3 className="font-sans font-bold text-brand-dark text-sm">Mail Us</h3>
-                <p className="text-xs text-brand-dark/65 mt-1 font-medium">{mainEmail}</p>
+                <h3 className="font-sans font-bold text-brand-dark text-xs sm:text-sm">Mail Us</h3>
+                <p className="text-[10px] sm:text-xs text-brand-dark/65 mt-0.5 font-medium">{mainEmail}</p>
               </a>
             </div>
 
@@ -454,7 +498,7 @@ export default function Home() {
               <div className="space-y-4 pt-2">
                 {/* Zomato */}
                 <a
-                  href="https://www.zomato.com/hyderabad/search?q=Sri%20Krishna%20Family%20Dhaba"
+                  href={zomatoUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center justify-between bg-white rounded-2xl p-5 shadow-sm border-l-4 border-red-500 hover:shadow-md transition-shadow group"
@@ -491,10 +535,8 @@ export default function Home() {
                 </a>
 
                 {/* WhatsApp Delivery */}
-                <a
-                  href={`https://wa.me/${whatsappNum}?text=Hello,%20I%20would%20like%20to%20order%20food%20for%20delivery.`}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                <Link
+                  to="/menu?orderType=Delivery&orderPlatform=WhatsApp"
                   className="flex items-center justify-between bg-white rounded-2xl p-5 shadow-sm border-l-4 border-emerald-500 hover:shadow-md transition-shadow group"
                 >
                   <div className="flex items-center gap-4">
@@ -509,7 +551,7 @@ export default function Home() {
                   <div className="w-8 h-8 rounded-full bg-brand-bg flex items-center justify-center text-brand-dark group-hover:bg-brand-dark group-hover:text-brand-bg transition-colors">
                     <ArrowRight size={14} />
                   </div>
-                </a>
+                </Link>
               </div>
             </div>
           </div>

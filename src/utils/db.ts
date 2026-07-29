@@ -28,6 +28,28 @@ export interface LoyaltyVoucher {
   expiresAt: string;
 }
 
+export interface GiftCoupon {
+  id: string;
+  code: string;
+  secureToken: string;
+  customerId: string;
+  customerName: string;
+  customerMobile: string;
+  minimumBillAmount: number;
+  discountPercentage: number;
+  category: string;
+  customCategory?: string;
+  createdAt: string;
+  expiresAt: string;
+  status: "ACTIVE" | "REDEEMED" | "EXPIRED" | "CANCELLED";
+  createdBy: string;
+  redeemedAt?: string;
+  redeemedBy?: string;
+  billAmount?: number;
+  discountAmount?: number;
+  finalAmount?: number;
+}
+
 export interface OrderItem {
   id: string;
   name: string;
@@ -46,6 +68,9 @@ export interface WhatsAppOrder {
   finalAmount: number;
   status: "Pending" | "Accepted" | "Out For Delivery" | "Delivered" | "Cancelled";
   createdAt: string;
+  deliveredAt?: string;
+  reviewToken?: string;
+  isReviewed?: boolean;
 }
 
 export interface AuditLog {
@@ -54,6 +79,21 @@ export interface AuditLog {
   action: string;
   details: string;
   timestamp: string;
+}
+
+export interface LoginAudit {
+  id: string;
+  loginAttemptId: string;
+  timestamp: string;
+  result: "SUCCESS" | "FAILED";
+  ipAddress: string;
+  browser: string;
+  deviceType: string;
+  userAgent: string;
+  snapshotUrl?: string | null;
+  adminUid?: string;
+  createdAt: string;
+  snapshotStatus?: "SUCCESS" | "PERMISSION_DENIED" | "NO_IMAGE";
 }
 
 export interface Booking {
@@ -84,6 +124,9 @@ export interface Review {
   avatar: string;
   status: "Pending" | "Approved" | "Rejected";
   pinned?: boolean;
+  orderId?: string;
+  approvedAt?: string;
+  approvedBy?: string;
 }
 
 export interface GalleryItem {
@@ -115,6 +158,7 @@ export interface RestaurantSettings {
   contactPhone: string;
   contactAddress: string;
   googleMapsEmbedUrl: string;
+  heroVideo?: string;
   // Promo visibility toggles
   showWebExclusiveBar: boolean;   // top announcement bar
   showMenuPromo: boolean;          // promo banner on menu page
@@ -382,10 +426,13 @@ const KEYS = {
   GALLERY: "skd_gallery",
   CONTACTS: "skd_contacts",
   SETTINGS: "skd_settings",
+  SETTINGS_DRAFT: "skd_settings_draft",
   VISITS: "skd_visits",
   VOUCHERS: "skd_vouchers",
   ORDERS: "skd_orders",
-  AUDIT_LOGS: "skd_audit_logs"
+  AUDIT_LOGS: "skd_audit_logs",
+  GIFT_COUPONS: "skd_gift_coupons",
+  LOGIN_AUDITS: "skd_login_audits"
 };
 
 const appId = "sri-krishna-dhaba";
@@ -458,6 +505,9 @@ export const db = {
     if (!localStorage.getItem(KEYS.SETTINGS)) {
       localStorage.setItem(KEYS.SETTINGS, JSON.stringify(defaultSettings));
     }
+    if (!localStorage.getItem(KEYS.SETTINGS_DRAFT)) {
+      localStorage.setItem(KEYS.SETTINGS_DRAFT, JSON.stringify(defaultSettings));
+    }
     if (!localStorage.getItem(KEYS.BOOKINGS)) {
       localStorage.setItem(KEYS.BOOKINGS, JSON.stringify(generateMockBookings()));
     }
@@ -476,23 +526,31 @@ export const db = {
     if (!localStorage.getItem(KEYS.AUDIT_LOGS)) {
       localStorage.setItem(KEYS.AUDIT_LOGS, JSON.stringify(defaultAuditLogs));
     }
+    if (!localStorage.getItem(KEYS.GIFT_COUPONS)) {
+      localStorage.setItem(KEYS.GIFT_COUPONS, JSON.stringify([]));
+    }
 
     // 2. Setup real-time listeners for Firestore if not already initialized
     if (!listenersInitialized) {
       listenersInitialized = true;
 
-      // Asynchronously seed Firestore collections if empty
+      // Asynchronously seed Firestore collections ONLY if DB is not already initialized
       (async () => {
         try {
-          await seedCollection("menu", initialMenu.map(d => ({ ...d, outOfStock: d.outOfStock || false, hidden: d.hidden || false })));
-          await seedCollection("reviews", defaultReviews);
-          await seedCollection("gallery", defaultGallery);
-          await seedSettings();
-          await seedCollection("bookings", generateMockBookings());
-          await seedCollection("vouchers", defaultVouchers);
-          await seedCollection("orders", defaultOrders);
-          await seedCollection("audit_logs", defaultAuditLogs);
-          await seedVisits();
+          const settingsRef = doc(firestore, publicPath, "settings", "default");
+          const settingsSnap = await getDoc(settingsRef);
+          if (!settingsSnap.exists()) {
+            console.log("DB not initialized. Seeding collections...");
+            await seedCollection("menu", initialMenu.map(d => ({ ...d, outOfStock: d.outOfStock || false, hidden: d.hidden || false })));
+            await seedCollection("reviews", defaultReviews);
+            await seedCollection("gallery", defaultGallery);
+            await seedSettings();
+            await seedCollection("bookings", generateMockBookings());
+            await seedCollection("vouchers", defaultVouchers);
+            await seedCollection("orders", defaultOrders);
+            await seedCollection("audit_logs", defaultAuditLogs);
+            await seedVisits();
+          }
         } catch (e) {
           console.error("Error seeding Firestore:", e);
         }
@@ -506,28 +564,20 @@ export const db = {
           snapshot.forEach((doc) => {
             list.push({ ...doc.data(), id: doc.id });
           });
-          if (list.length > 0) {
-            if (colName === "menu") {
-              const current = db.getMenu();
-              const map = new Map(current.map(d => [d.id, d]));
-              list.forEach(item => {
-                if (item && item.id) {
-                  map.set(item.id, { ...map.get(item.id), ...item });
-                }
-              });
-              const merged = Array.from(map.values());
-              localStorage.setItem(storageKey, JSON.stringify(merged));
-              window.dispatchEvent(new Event("storage"));
-            } else {
-              localStorage.setItem(storageKey, JSON.stringify(list));
-              window.dispatchEvent(new Event("storage"));
-            }
+          if (colName === "menu") {
+            const current = db.getMenu();
+            const map = new Map(current.map(d => [d.id, d]));
+            list.forEach(item => {
+              if (item && item.id) {
+                map.set(item.id, { ...map.get(item.id), ...item });
+              }
+            });
+            const merged = Array.from(map.values());
+            localStorage.setItem(storageKey, JSON.stringify(merged));
+            window.dispatchEvent(new Event("storage"));
           } else {
-            const existing = localStorage.getItem(storageKey);
-            if (!existing || existing === "[]") {
-              localStorage.setItem(storageKey, JSON.stringify(list));
-              window.dispatchEvent(new Event("storage"));
-            }
+            localStorage.setItem(storageKey, JSON.stringify(list));
+            window.dispatchEvent(new Event("storage"));
           }
         }, (_error) => {
           // Fallback to local data cleanly if Firestore permissions/network are unavailable
@@ -542,12 +592,22 @@ export const db = {
       syncCollection("orders", KEYS.ORDERS);
       syncCollection("audit_logs", KEYS.AUDIT_LOGS);
       syncCollection("contacts", KEYS.CONTACTS);
+      syncCollection("gift_coupons", KEYS.GIFT_COUPONS);
+      syncCollection("login_audits", KEYS.LOGIN_AUDITS);
 
       onSnapshot(doc(firestore, publicPath, "settings", "default"), (docSnap) => {
         if (docSnap.exists()) {
           localStorage.setItem(KEYS.SETTINGS, JSON.stringify(docSnap.data()));
           window.dispatchEvent(new Event("storage"));
           window.dispatchEvent(new Event("skd_settings_updated"));
+        }
+      }, () => {});
+
+      onSnapshot(doc(firestore, publicPath, "settings", "draft"), (docSnap) => {
+        if (docSnap.exists()) {
+          localStorage.setItem(KEYS.SETTINGS_DRAFT, JSON.stringify(docSnap.data()));
+          window.dispatchEvent(new Event("storage"));
+          window.dispatchEvent(new Event("skd_settings_draft_updated"));
         }
       }, () => {});
 
@@ -596,8 +656,24 @@ export const db = {
         });
         updated = true;
       } else {
+        let changed = false;
         if (masterDish.image && existing.image !== masterDish.image) {
           existing.image = masterDish.image;
+          changed = true;
+        }
+        if (existing.title !== masterDish.title) {
+          existing.title = masterDish.title;
+          changed = true;
+        }
+        if (existing.category !== masterDish.category) {
+          existing.category = masterDish.category;
+          changed = true;
+        }
+        if (existing.description !== masterDish.description) {
+          existing.description = masterDish.description;
+          changed = true;
+        }
+        if (changed) {
           updated = true;
         }
       }
@@ -638,7 +714,7 @@ export const db = {
     return newDish;
   },
 
-  updateDish(id: string, updates: Partial<Dish>): Dish {
+  async updateDish(id: string, updates: Partial<Dish>): Promise<Dish> {
     const menu = this.getMenu();
     const index = menu.findIndex((d) => d.id === id);
     if (index === -1) throw new Error("Dish not found");
@@ -655,7 +731,7 @@ export const db = {
       return acc;
     }, {} as any);
 
-    updateDoc(doc(firestore, publicPath, "menu", id), cleanedUpdates).catch(e => console.error(e));
+    await updateDoc(doc(firestore, publicPath, "menu", id), cleanedUpdates);
     return updated;
   },
 
@@ -688,7 +764,7 @@ export const db = {
     localStorage.setItem(KEYS.BOOKINGS, JSON.stringify(bookings));
     window.dispatchEvent(new Event("storage"));
 
-    setDoc(doc(firestore, publicPath, "bookings", id), newBooking).catch(e => console.error(e));
+    setDoc(doc(firestore, publicPath, "bookings", id), cleanForFirestore(newBooking)).catch(e => console.error(e));
     return newBooking;
   },
 
@@ -716,17 +792,18 @@ export const db = {
     localStorage.setItem(KEYS.BOOKINGS, JSON.stringify(bookings));
     window.dispatchEvent(new Event("storage"));
 
-    updateDoc(doc(firestore, publicPath, "bookings", id), updates).catch(e => console.error(e));
+    updateDoc(doc(firestore, publicPath, "bookings", id), cleanForFirestore(updates)).catch(e => console.error(e));
     return updated;
   },
 
-  deleteBooking(id: string): void {
+  async deleteBooking(id: string): Promise<void> {
     const bookings = this.getBookings();
     const filtered = bookings.filter((b) => b.id !== id);
     localStorage.setItem(KEYS.BOOKINGS, JSON.stringify(filtered));
     window.dispatchEvent(new Event("storage"));
 
-    deleteDoc(doc(firestore, publicPath, "bookings", id)).catch(e => console.error(e));
+    await deleteDoc(doc(firestore, publicPath, "bookings", id));
+    this.addAuditLog("Reservation Deleted", `Permanently deleted reservation request ${id} from database`);
   },
 
   // ─── REVIEWS DB ──────────────────────────────────────────────────────────
@@ -742,7 +819,7 @@ export const db = {
       ...review,
       id,
       avatar: initials || "G",
-      date: "Just now",
+      date: new Date().toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }),
       status: "Pending"
     };
 
@@ -751,7 +828,7 @@ export const db = {
     localStorage.setItem(KEYS.REVIEWS, JSON.stringify(reviews));
     window.dispatchEvent(new Event("storage"));
 
-    setDoc(doc(firestore, publicPath, "reviews", id), newReview).catch(e => console.error(e));
+    setDoc(doc(firestore, publicPath, "reviews", id), cleanForFirestore(newReview)).catch(e => console.error(e));
     return newReview;
   },
 
@@ -766,7 +843,7 @@ export const db = {
 
     const updates: Partial<Review> = { status };
     if (pinned !== undefined) updates.pinned = pinned;
-    updateDoc(doc(firestore, publicPath, "reviews", id), updates).catch(e => console.error(e));
+    updateDoc(doc(firestore, publicPath, "reviews", id), cleanForFirestore(updates)).catch(e => console.error(e));
     return reviews[index];
   },
 
@@ -852,7 +929,7 @@ export const db = {
     localStorage.setItem(KEYS.CONTACTS, JSON.stringify(contacts));
     window.dispatchEvent(new Event("storage"));
 
-    setDoc(doc(firestore, publicPath, "contacts", id), newInquiry).catch(e => console.error(e));
+    setDoc(doc(firestore, publicPath, "contacts", id), cleanForFirestore(newInquiry)).catch(e => console.error(e));
     return newInquiry;
   },
 
@@ -897,8 +974,49 @@ export const db = {
     window.dispatchEvent(new Event("storage"));
     window.dispatchEvent(new Event("skd_settings_updated"));
 
-    updateDoc(doc(firestore, publicPath, "settings", "default"), updates).catch(e => console.error(e));
+    updateDoc(doc(firestore, publicPath, "settings", "default"), cleanForFirestore(updates)).catch(e => console.error(e));
     return updated;
+  },
+
+  getSettingsDraft(): RestaurantSettings {
+    this.init();
+    const stored = localStorage.getItem(KEYS.SETTINGS_DRAFT);
+    if (!stored) return this.getSettings();
+    try {
+      const parsed = JSON.parse(stored);
+      return { ...defaultSettings, ...parsed };
+    } catch (e) {
+      return this.getSettings();
+    }
+  },
+
+  async updateSettingsDraft(updates: Partial<RestaurantSettings>): Promise<RestaurantSettings> {
+    const current = this.getSettingsDraft();
+    const updated = { ...current, ...updates };
+    localStorage.setItem(KEYS.SETTINGS_DRAFT, JSON.stringify(updated));
+    window.dispatchEvent(new Event("storage"));
+    window.dispatchEvent(new Event("skd_settings_draft_updated"));
+
+    await setDoc(doc(firestore, publicPath, "settings", "draft"), cleanForFirestore(updated));
+    return updated;
+  },
+
+  async publishSettings(): Promise<RestaurantSettings> {
+    const draft = this.getSettingsDraft();
+    localStorage.setItem(KEYS.SETTINGS, JSON.stringify(draft));
+    window.dispatchEvent(new Event("storage"));
+    window.dispatchEvent(new Event("skd_settings_updated"));
+
+    await setDoc(doc(firestore, publicPath, "settings", "default"), cleanForFirestore(draft));
+    return draft;
+  },
+
+  formatPromoText(text: string, discount: number): string {
+    if (!text) return "";
+    if (text.includes("{discount}")) {
+      return text.replace(/{discount}/g, String(discount));
+    }
+    return text.replace(/(\d+)\s*%/g, `${discount}%`);
   },
 
   // ─── ANALYTICS & STATS ───────────────────────────────────────────────────
@@ -923,7 +1041,7 @@ export const db = {
     const visits = parseInt(localStorage.getItem(KEYS.VISITS) || "250", 10);
 
     const todayStr = new Date().toISOString().split("T")[0];
-    const todayBookings = bookings.filter((b) => b.date === todayStr);
+    const todayBookings = bookings.filter((b) => b.date === todayStr && (b.status === "Approved" || b.status === "Arrived" || b.status === "Completed"));
 
     const pending = bookings.filter((b) => b.status === "Pending").length;
     const approved = bookings.filter((b) => b.status === "Approved").length;
@@ -1049,7 +1167,7 @@ export const db = {
     localStorage.setItem(KEYS.VOUCHERS, JSON.stringify(vouchers));
     window.dispatchEvent(new Event("storage"));
 
-    setDoc(doc(firestore, publicPath, "vouchers", id), newVoucher).catch(e => console.error(e));
+    setDoc(doc(firestore, publicPath, "vouchers", id), cleanForFirestore(newVoucher)).catch(e => console.error(e));
     this.addAuditLog("Voucher Generation", `Generated voucher ${id} for phone ${voucher.phone}`);
     return newVoucher;
   },
@@ -1097,22 +1215,58 @@ export const db = {
     localStorage.setItem(KEYS.ORDERS, JSON.stringify(orders));
     window.dispatchEvent(new Event("storage"));
 
-    setDoc(doc(firestore, publicPath, "orders", id), newOrder).catch(e => console.error(e));
+    setDoc(doc(firestore, publicPath, "orders", id), cleanForFirestore(newOrder)).catch(e => console.error(e));
     this.addAuditLog("Order Received", `New web order received from ${newOrder.customerName} (${id})`);
     return newOrder;
   },
 
-  updateOrderStatus(id: string, status: WhatsAppOrder["status"]): WhatsAppOrder {
+  async updateOrderStatus(id: string, status: WhatsAppOrder["status"], reviewToken?: string): Promise<WhatsAppOrder> {
     const orders = this.getOrders();
     const index = orders.findIndex((o) => o.id === id);
     if (index === -1) throw new Error("Order not found");
+    if (orders[index].status === "Delivered") {
+      throw new Error("Cannot modify a delivered order");
+    }
     orders[index].status = status;
+    
+    const updates: any = { status };
+    if (status === "Delivered") {
+      const nowStr = new Date().toISOString();
+      orders[index].deliveredAt = nowStr;
+      updates.deliveredAt = nowStr;
+      if (reviewToken) {
+        orders[index].reviewToken = reviewToken;
+        updates.reviewToken = reviewToken;
+      }
+    }
+
     localStorage.setItem(KEYS.ORDERS, JSON.stringify(orders));
     window.dispatchEvent(new Event("storage"));
 
-    updateDoc(doc(firestore, publicPath, "orders", id), { status }).catch(e => console.error(e));
+    await updateDoc(doc(firestore, publicPath, "orders", id), cleanForFirestore(updates));
     this.addAuditLog("Order Status Update", `Updated order ${id} status to ${status}`);
     return orders[index];
+  },
+
+  submitOrderReview(orderId: string, name: string, rating: number, comment: string): void {
+    const orders = this.getOrders();
+    const idx = orders.findIndex(o => o.id === orderId);
+    if (idx !== -1) {
+      orders[idx].isReviewed = true;
+      localStorage.setItem(KEYS.ORDERS, JSON.stringify(orders));
+      window.dispatchEvent(new Event("storage"));
+      updateDoc(doc(firestore, publicPath, "orders", orderId), { isReviewed: true }).catch(e => console.error(e));
+    }
+
+    this.addReview({
+      name,
+      role: "WhatsApp Customer",
+      rating,
+      quote: comment,
+      source: "WhatsApp Delivery",
+      pinned: false,
+      orderId
+    });
   },
 
   deleteOrder(id: string): void {
@@ -1122,6 +1276,119 @@ export const db = {
     window.dispatchEvent(new Event("storage"));
 
     deleteDoc(doc(firestore, publicPath, "orders", id)).catch(e => console.error(e));
+  },
+
+  // ─── GIFT COUPONS DB ──────────────────────────────────────────────────────
+  getGiftCoupons(): GiftCoupon[] {
+    this.init();
+    const list: GiftCoupon[] = JSON.parse(localStorage.getItem(KEYS.GIFT_COUPONS) || "[]");
+    
+    // Check auto-expiry
+    let changed = false;
+    const now = new Date().getTime();
+    const updated = list.map(c => {
+      if (c.status === "ACTIVE" && new Date(c.expiresAt).getTime() < now) {
+        c.status = "EXPIRED";
+        changed = true;
+        updateDoc(doc(firestore, publicPath, "gift_coupons", c.id), { status: "EXPIRED" }).catch(e => console.error(e));
+      }
+      return c;
+    });
+
+    if (changed) {
+      localStorage.setItem(KEYS.GIFT_COUPONS, JSON.stringify(updated));
+      window.dispatchEvent(new Event("storage"));
+    }
+
+    return updated;
+  },
+
+  addGiftCoupon(coupon: Omit<GiftCoupon, "id" | "secureToken" | "createdAt" | "status" | "createdBy">): GiftCoupon {
+    const id = `gft-${Date.now()}`;
+    const secureToken = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+    
+    let sessionUser = "Admin";
+    try {
+      const savedUser = sessionStorage.getItem("skd_admin_session");
+      if (savedUser) {
+        const parsed = JSON.parse(savedUser);
+        sessionUser = parsed.name || parsed.username || "Admin";
+      }
+    } catch (e) {}
+
+    const newCoupon: GiftCoupon = {
+      ...coupon,
+      id,
+      secureToken,
+      status: "ACTIVE",
+      createdAt: new Date().toISOString(),
+      createdBy: sessionUser
+    };
+
+    const coupons = this.getGiftCoupons();
+    coupons.push(newCoupon);
+    localStorage.setItem(KEYS.GIFT_COUPONS, JSON.stringify(coupons));
+    window.dispatchEvent(new Event("storage"));
+
+    setDoc(doc(firestore, publicPath, "gift_coupons", id), cleanForFirestore(newCoupon)).catch(e => console.error(e));
+    this.addAuditLog("GIFT_COUPON_CREATED", `Created gift coupon ${newCoupon.code} for ${newCoupon.customerName}`);
+    return newCoupon;
+  },
+
+  redeemGiftCoupon(id: string, details: { redeemedBy: string; billAmount: number; discountAmount: number; finalAmount: number }): GiftCoupon {
+    const coupons = this.getGiftCoupons();
+    const idx = coupons.findIndex(c => c.id === id);
+    if (idx === -1) throw new Error("Coupon not found");
+    if (coupons[idx].status !== "ACTIVE") throw new Error(`Coupon is not active (Status: ${coupons[idx].status})`);
+    
+    const nowStr = new Date().toISOString();
+    coupons[idx] = {
+      ...coupons[idx],
+      status: "REDEEMED",
+      redeemedAt: nowStr,
+      ...details
+    };
+
+    localStorage.setItem(KEYS.GIFT_COUPONS, JSON.stringify(coupons));
+    window.dispatchEvent(new Event("storage"));
+
+    updateDoc(doc(firestore, publicPath, "gift_coupons", id), cleanForFirestore({
+      status: "REDEEMED",
+      redeemedAt: nowStr,
+      ...details
+    })).catch(e => console.error(e));
+
+    this.addAuditLog("GIFT_COUPON_REDEEMED", `Redeemed coupon ${coupons[idx].code} for customer ${coupons[idx].customerName}. Bill: Rs. ${details.billAmount}, Discount: Rs. ${details.discountAmount}`);
+    return coupons[idx];
+  },
+
+  cancelGiftCoupon(id: string, adminUser: string): GiftCoupon {
+    const coupons = this.getGiftCoupons();
+    const idx = coupons.findIndex(c => c.id === id);
+    if (idx === -1) throw new Error("Coupon not found");
+    if (coupons[idx].status !== "ACTIVE") throw new Error("Only active coupons can be cancelled");
+
+    coupons[idx].status = "CANCELLED";
+    localStorage.setItem(KEYS.GIFT_COUPONS, JSON.stringify(coupons));
+    window.dispatchEvent(new Event("storage"));
+
+    updateDoc(doc(firestore, publicPath, "gift_coupons", id), { status: "CANCELLED" }).catch(e => console.error(e));
+    this.addAuditLog("GIFT_COUPON_CANCELLED", `Cancelled coupon ${coupons[idx].code} for customer ${coupons[idx].customerName}`, adminUser);
+    return coupons[idx];
+  },
+
+  async deleteGiftCoupon(id: string): Promise<void> {
+    const coupons = this.getGiftCoupons();
+    const c = coupons.find(x => x.id === id);
+    const code = c ? c.code : id;
+    const customer = c ? c.customerName : "Unknown";
+    
+    const filtered = coupons.filter((x) => x.id !== id);
+    localStorage.setItem(KEYS.GIFT_COUPONS, JSON.stringify(filtered));
+    window.dispatchEvent(new Event("storage"));
+
+    await deleteDoc(doc(firestore, publicPath, "gift_coupons", id));
+    this.addAuditLog("GIFT_COUPON_DELETED", `Permanently deleted gift coupon ${code} for customer ${customer} from database`);
   },
 
   // ─── AUDIT LOGS DB ────────────────────────────────────────────────────────
@@ -1152,6 +1419,51 @@ export const db = {
     const sliced = logs.slice(-200);
     localStorage.setItem(KEYS.AUDIT_LOGS, JSON.stringify(sliced));
     return newLog;
+  },
+
+  getLoginAudits(): LoginAudit[] {
+    this.init();
+    return JSON.parse(localStorage.getItem(KEYS.LOGIN_AUDITS) || "[]");
+  },
+
+  async addLoginAudit(audit: Omit<LoginAudit, "id">): Promise<LoginAudit> {
+    const list = this.getLoginAudits();
+    const id = `audit-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    const newAudit: LoginAudit = { ...audit, id };
+    list.push(newAudit);
+    
+    const sliced = list.slice(-200);
+    localStorage.setItem(KEYS.LOGIN_AUDITS, JSON.stringify(sliced));
+    window.dispatchEvent(new Event("storage"));
+
+    await setDoc(doc(firestore, publicPath, "login_audits", id), cleanForFirestore(newAudit));
+    return newAudit;
+  },
+
+  async deleteLoginAudit(id: string): Promise<void> {
+    const list = this.getLoginAudits();
+    const filtered = list.filter(a => a.id !== id);
+    localStorage.setItem(KEYS.LOGIN_AUDITS, JSON.stringify(filtered));
+    window.dispatchEvent(new Event("storage"));
+
+    await deleteDoc(doc(firestore, publicPath, "login_audits", id));
+  },
+
+  async updateLoginAuditSnapshot(id: string, snapshotUrl: string | null, status: "SUCCESS" | "PERMISSION_DENIED" | "NO_IMAGE"): Promise<void> {
+    const list = this.getLoginAudits();
+    const idx = list.findIndex(a => a.id === id);
+    if (idx !== -1) {
+      list[idx] = {
+        ...list[idx],
+        snapshotUrl,
+        snapshotStatus: status
+      };
+      localStorage.setItem(KEYS.LOGIN_AUDITS, JSON.stringify(list));
+      window.dispatchEvent(new Event("storage"));
+      
+      const docRef = doc(firestore, publicPath, "login_audits", id);
+      await setDoc(docRef, cleanForFirestore(list[idx]));
+    }
   },
 
   deleteBookingsByDate(dateString: string): void {
@@ -1223,16 +1535,27 @@ export const db = {
   },
 
   deleteCustomers(phones: string[]): void {
+    const normalize = (phone: string) => {
+      if (!phone) return "";
+      let cleaned = phone.trim().replace(/[\s\-\+]/g, "");
+      if (cleaned.length === 12 && cleaned.startsWith("91")) {
+        cleaned = cleaned.substring(2);
+      }
+      return cleaned;
+    };
+
+    const normTargetPhones = phones.map(normalize);
+
     const bookings = this.getBookings();
-    const filteredBookings = bookings.filter((b) => !phones.includes(b.phone));
+    const filteredBookings = bookings.filter((b) => !normTargetPhones.includes(normalize(b.phone)));
     localStorage.setItem(KEYS.BOOKINGS, JSON.stringify(filteredBookings));
 
     const orders = this.getOrders();
-    const filteredOrders = orders.filter((o) => !phones.includes(o.phone));
+    const filteredOrders = orders.filter((o) => !normTargetPhones.includes(normalize(o.phone)));
     localStorage.setItem(KEYS.ORDERS, JSON.stringify(filteredOrders));
 
     const vouchers = this.getVouchers();
-    const filteredVouchers = vouchers.filter((v) => !phones.includes(v.phone));
+    const filteredVouchers = vouchers.filter((v) => !normTargetPhones.includes(normalize(v.phone)));
     localStorage.setItem(KEYS.VOUCHERS, JSON.stringify(filteredVouchers));
     
     window.dispatchEvent(new Event("storage"));
@@ -1241,19 +1564,22 @@ export const db = {
       try {
         const bookingsSnapshot = await getDocs(collection(firestore, publicPath, "bookings"));
         bookingsSnapshot.forEach(docSnap => {
-          if (phones.includes(docSnap.data().phone)) {
+          const phone = docSnap.data().phone;
+          if (normTargetPhones.includes(normalize(phone))) {
             deleteDoc(doc(firestore, publicPath, "bookings", docSnap.id));
           }
         });
         const ordersSnapshot = await getDocs(collection(firestore, publicPath, "orders"));
         ordersSnapshot.forEach(docSnap => {
-          if (phones.includes(docSnap.data().phone)) {
+          const phone = docSnap.data().phone;
+          if (normTargetPhones.includes(normalize(phone))) {
             deleteDoc(doc(firestore, publicPath, "orders", docSnap.id));
           }
         });
         const vouchersSnapshot = await getDocs(collection(firestore, publicPath, "vouchers"));
         vouchersSnapshot.forEach(docSnap => {
-          if (phones.includes(docSnap.data().phone)) {
+          const phone = docSnap.data().phone;
+          if (normTargetPhones.includes(normalize(phone))) {
             deleteDoc(doc(firestore, publicPath, "vouchers", docSnap.id));
           }
         });
@@ -1263,5 +1589,109 @@ export const db = {
     })();
 
     this.addAuditLog("Customer Deletion", `Deleted customer profiles and all associated bookings/orders/vouchers for mobile numbers: ${phones.join(", ")}`);
+  },
+
+  async clearAllBookings(): Promise<void> {
+    localStorage.setItem(KEYS.BOOKINGS, "[]");
+    window.dispatchEvent(new Event("storage"));
+
+    try {
+      const snap = await getDocs(collection(firestore, publicPath, "bookings"));
+      for (const docSnap of snap.docs) {
+        await deleteDoc(doc(firestore, publicPath, "bookings", docSnap.id));
+      }
+    } catch (e) {
+      console.error("Error in clearAllBookings Firestore:", e);
+    }
+    this.addAuditLog("Bookings Cleared", "Permanently deleted all reservation records from database");
+  },
+
+  async clearAllOrders(): Promise<void> {
+    localStorage.setItem(KEYS.ORDERS, "[]");
+    window.dispatchEvent(new Event("storage"));
+
+    try {
+      const snap = await getDocs(collection(firestore, publicPath, "orders"));
+      for (const docSnap of snap.docs) {
+        await deleteDoc(doc(firestore, publicPath, "orders", docSnap.id));
+      }
+    } catch (e) {
+      console.error("Error in clearAllOrders Firestore:", e);
+    }
+    this.addAuditLog("Orders Cleared", "Permanently deleted all order records from database");
+  },
+
+  async clearAllAuditLogs(): Promise<void> {
+    localStorage.setItem(KEYS.AUDIT_LOGS, "[]");
+    window.dispatchEvent(new Event("storage"));
+
+    try {
+      const snap = await getDocs(collection(firestore, publicPath, "audit_logs"));
+      for (const docSnap of snap.docs) {
+        await deleteDoc(doc(firestore, publicPath, "audit_logs", docSnap.id));
+      }
+    } catch (e) {
+      console.error("Error in clearAllAuditLogs Firestore:", e);
+    }
+    this.addAuditLog("Audit Logs Cleared", "Permanently deleted all audit trail logs from database");
+  },
+
+  async clearAllLoginAudits(): Promise<void> {
+    localStorage.setItem(KEYS.LOGIN_AUDITS, "[]");
+    window.dispatchEvent(new Event("storage"));
+
+    try {
+      const snap = await getDocs(collection(firestore, publicPath, "login_audits"));
+      for (const docSnap of snap.docs) {
+        await deleteDoc(doc(firestore, publicPath, "login_audits", docSnap.id));
+      }
+    } catch (e) {
+      console.error("Error in clearAllLoginAudits Firestore:", e);
+    }
+    this.addAuditLog("Login Audits Cleared", "Permanently deleted all login security audits from database");
+  },
+
+  async clearAllCustomers(): Promise<void> {
+    localStorage.setItem(KEYS.BOOKINGS, "[]");
+    localStorage.setItem(KEYS.ORDERS, "[]");
+    localStorage.setItem(KEYS.VOUCHERS, "[]");
+    window.dispatchEvent(new Event("storage"));
+
+    try {
+      const bookingsSnap = await getDocs(collection(firestore, publicPath, "bookings"));
+      for (const docSnap of bookingsSnap.docs) {
+        await deleteDoc(doc(firestore, publicPath, "bookings", docSnap.id));
+      }
+
+      const ordersSnap = await getDocs(collection(firestore, publicPath, "orders"));
+      for (const docSnap of ordersSnap.docs) {
+        await deleteDoc(doc(firestore, publicPath, "orders", docSnap.id));
+      }
+
+      const vouchersSnap = await getDocs(collection(firestore, publicPath, "vouchers"));
+      for (const docSnap of vouchersSnap.docs) {
+        await deleteDoc(doc(firestore, publicPath, "vouchers", docSnap.id));
+      }
+    } catch (e) {
+      console.error("Error in clearAllCustomers Firestore:", e);
+    }
+
+    this.addAuditLog("Customer DB Purged", "Permanently purged all customer directory profiles, bookings, orders, and vouchers.");
+  },
+
+  async clearAllGiftCoupons(): Promise<void> {
+    localStorage.setItem(KEYS.GIFT_COUPONS, "[]");
+    window.dispatchEvent(new Event("storage"));
+
+    try {
+      const snap = await getDocs(collection(firestore, publicPath, "gift_coupons"));
+      for (const docSnap of snap.docs) {
+        await deleteDoc(doc(firestore, publicPath, "gift_coupons", docSnap.id));
+      }
+    } catch (e) {
+      console.error("Error in clearAllGiftCoupons Firestore:", e);
+    }
+
+    this.addAuditLog("Gift Coupons Cleared", "Permanently purged all gift coupons from database");
   }
 };

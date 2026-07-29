@@ -83,6 +83,7 @@ export default function Menu() {
   const [specialNotes, setSpecialNotes] = useState("");
   const [showWhatsAppConfirmModal, setShowWhatsAppConfirmModal] = useState(false);
   const [pendingOrder, setPendingOrder] = useState<any | null>(null);
+  const [successOrder, setSuccessOrder] = useState<any | null>(null);
   const [orderPlatform, setOrderPlatform] = useState<"WhatsApp" | "Swiggy" | "Zomato">("WhatsApp");
   const [addedItemToast, setAddedItemToast] = useState<{ dish: Dish; quantity: number } | null>(null);
   const toastTimeoutRef = useRef<number | null>(null);
@@ -296,6 +297,19 @@ export default function Menu() {
     };
   }, [selectedCategory, categories]);
 
+  // Pre-select order type and platform based on query parameters from direct links
+  useEffect(() => {
+    const query = new URLSearchParams(location.search);
+    const ot = query.get("orderType");
+    if (ot === "Delivery" || ot === "Pickup") {
+      setOrderType(ot);
+    }
+    const op = query.get("orderPlatform");
+    if (op === "WhatsApp" || op === "Swiggy" || op === "Zomato") {
+      setOrderPlatform(op);
+    }
+  }, [location.search]);
+
   // Deep-link scrolling check on mount
   useEffect(() => {
     const query = new URLSearchParams(location.search);
@@ -326,6 +340,8 @@ export default function Menu() {
       }
       return [...prev, { dish, quantity: 1, instructions: "" }];
     });
+
+    setIsCartOpen(true);
 
     // Show custom toast notification
     setAddedItemToast({ dish, quantity: 1 });
@@ -363,8 +379,21 @@ export default function Menu() {
     return cartTotal - discountAmount;
   }, [cartTotal, discountAmount]);
 
+  const checkCartAvailability = (): boolean => {
+    const latestMenu = db.getMenu();
+    for (const item of cart) {
+      const matchedDish = latestMenu.find(d => d.id === item.dish.id);
+      if (matchedDish && matchedDish.outOfStock) {
+        alert(`${item.dish.title} is currently out of stock. Please remove it from your order.`);
+        return false;
+      }
+    }
+    return true;
+  };
+
   const sendWhatsAppOrder = () => {
     if (cart.length === 0) return;
+    if (!checkCartAvailability()) return;
     if (!customerName || !customerPhone) {
       alert("Please fill in your Name and Contact Number.");
       return;
@@ -432,7 +461,7 @@ export default function Menu() {
 
   const confirmWhatsAppOrderSent = () => {
     if (pendingOrder) {
-      db.addOrder(pendingOrder);
+      const savedOrder = db.addOrder(pendingOrder);
       
       try {
         (db as any).addAuditLog(
@@ -443,6 +472,9 @@ export default function Menu() {
         console.warn("Audit logging failed on client:", e);
       }
       
+      if (orderType === "Pickup") {
+        setSuccessOrder(savedOrder);
+      }
       setPendingOrder(null);
     }
     setShowWhatsAppConfirmModal(false);
@@ -463,6 +495,7 @@ export default function Menu() {
 
   const handleExternalRedirectOrder = () => {
     if (cart.length === 0) return;
+    if (!checkCartAvailability()) return;
     
     // Log redirect order to database for Admin tracking
     db.addOrder({
@@ -836,6 +869,70 @@ export default function Menu() {
         )}
       </AnimatePresence>
 
+      {/* Self-Pickup QR Code success modal */}
+      <AnimatePresence>
+        {successOrder && (
+          <div className="fixed inset-0 bg-brand-dark/90 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl p-6 border border-brand-gold/30 w-full max-w-sm space-y-6 shadow-2xl relative text-brand-dark"
+            >
+              <div className="space-y-2 text-center">
+                <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto text-xl font-bold">
+                  ✓
+                </div>
+                <h3 className="font-display font-black text-lg text-brand-dark uppercase tracking-wider">
+                  Order Registered!
+                </h3>
+                <p className="text-[11px] text-brand-dark/75 font-semibold leading-relaxed">
+                  Thank you for your order, <strong>{successOrder.customerName}</strong>! Please present this QR code to the counter staff when picking up your delivery.
+                </p>
+              </div>
+
+              {/* QR Code */}
+              <div className="bg-brand-bg/40 p-4 rounded-2xl border border-brand-gold/15 max-w-[170px] mx-auto shadow-inner text-center space-y-2">
+                <div className="bg-white p-2 rounded-xl border border-brand-gold/15 shadow flex items-center justify-center">
+                  <img
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(successOrder.id)}`}
+                    alt="Self Pickup QR Code"
+                    className="w-[120px] h-[120px]"
+                  />
+                </div>
+                <div className="text-[11px] font-black uppercase text-brand-accent tracking-widest font-mono">
+                  {successOrder.id}
+                </div>
+              </div>
+
+              {/* Order Info */}
+              <div className="bg-brand-bg/25 border border-brand-dark/10 rounded-2xl p-4 text-left text-xs space-y-1.5 font-semibold text-brand-dark/85">
+                <div className="flex justify-between">
+                  <span className="text-brand-dark/50 uppercase text-[9px] font-black tracking-wider">Order ID</span>
+                  <span className="font-mono font-extrabold tracking-wider">{successOrder.id}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-brand-dark/50 uppercase text-[9px] font-black tracking-wider">Status</span>
+                  <span className="text-amber-600 font-extrabold uppercase text-[10px] tracking-wide">Pending Pickup</span>
+                </div>
+                <div className="flex justify-between border-t border-brand-dark/5 pt-1.5 font-bold">
+                  <span>Grand Total</span>
+                  <span className="text-brand-accent text-sm font-black">Rs. {successOrder.finalAmount.toFixed(0)}</span>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setSuccessOrder(null)}
+                className="w-full py-3.5 bg-brand-dark hover:bg-brand-accent text-white font-black tracking-widest uppercase text-xs rounded-xl shadow-md transition-colors cursor-pointer"
+              >
+                Close & Done
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Added to Cart Toast Notification */}
       <AnimatePresence>
         {addedItemToast && (
@@ -912,7 +1009,12 @@ export default function Menu() {
               </p>
             </div>
             <button
-              onClick={() => handleCategoryClick("All")}
+              onClick={() => {
+                const el = document.getElementById("menu-catalog-section");
+                if (el) {
+                  el.scrollIntoView({ behavior: "smooth" });
+                }
+              }}
               className="shrink-0 bg-brand-accent hover:bg-brand-dark text-white px-5 py-2.5 rounded-full text-xs font-bold tracking-wider uppercase transition-colors"
             >
               Order Now
@@ -921,7 +1023,7 @@ export default function Menu() {
         )}
 
         {/* Search & Filters */}
-        <div className="max-w-5xl mx-auto bg-white rounded-3xl p-6 shadow-sm border border-brand-gold/10 mb-10">
+        <div id="menu-catalog-section" className="max-w-5xl mx-auto bg-white rounded-3xl p-6 shadow-sm border border-brand-gold/10 mb-10">
           <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
             {/* Search Input */}
             <div className="md:col-span-6 relative">
@@ -1062,10 +1164,7 @@ export default function Menu() {
                       <DishCard 
                         dish={dish} 
                         showImage={true}
-                        onClickOverride={(e) => {
-                          e.stopPropagation();
-                          handleAddToCart(dish);
-                        }}
+                        onOrderOverride={handleAddToCart}
                       />
                     </div>
                   ))}
@@ -1107,10 +1206,7 @@ export default function Menu() {
                         <DishCard 
                           dish={dish} 
                           showImage={true}
-                          onClickOverride={(e) => {
-                            e.stopPropagation();
-                            handleAddToCart(dish);
-                          }}
+                          onOrderOverride={handleAddToCart}
                         />
                       </div>
                     ))}

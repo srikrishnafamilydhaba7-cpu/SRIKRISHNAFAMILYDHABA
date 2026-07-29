@@ -7,11 +7,34 @@ import type { Booking } from "../utils/db";
 
 
 
-const defaultTimeSlots = [
-  "11:30", "12:00", "12:30", "13:00", "13:30", "14:00", "14:30", "15:00", "15:30",
-  "16:00", "16:30", "17:00", "17:30", "18:00", "18:30", "19:00", "19:30", "20:00",
-  "20:30", "21:00", "21:30", "22:00", "22:30", "23:00", "23:30"
-];
+function parseTimeToMinutes(timeStr: string): number {
+  if (!timeStr) return 0;
+  
+  // Check if it contains AM/PM
+  const match12h = timeStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+  if (match12h) {
+    let h = parseInt(match12h[1], 10);
+    const m = parseInt(match12h[2], 10);
+    const ampm = match12h[3].toUpperCase();
+    if (ampm === "PM" && h < 12) h += 12;
+    if (ampm === "AM" && h === 12) h = 0;
+    return h * 60 + m;
+  }
+  
+  // Fallback to 24h format
+  const parts = timeStr.split(":");
+  const h = parseInt(parts[0], 10) || 0;
+  const m = parseInt(parts[1], 10) || 0;
+  return h * 60 + m;
+}
+
+function normalizeTo24h(timeStr: string): string {
+  if (!timeStr) return "";
+  const totalMinutes = parseTimeToMinutes(timeStr);
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
 
 function parseOpeningHours(timingsStr?: string) {
   const fallback = {
@@ -66,16 +89,15 @@ function parseOpeningHours(timingsStr?: string) {
 
 function isTimeWithinOpeningHours(timeStr: string, openMinutes: number, closeMinutes: number): boolean {
   if (!timeStr) return false;
-  const [hStr, mStr] = timeStr.split(":");
-  const h = parseInt(hStr, 10);
-  const m = parseInt(mStr, 10);
-  if (isNaN(h) || isNaN(m)) return false;
-  const selectedMinutes = h * 60 + m;
+  const selectedMinutes = parseTimeToMinutes(timeStr);
   return selectedMinutes >= openMinutes && selectedMinutes <= closeMinutes;
 }
 
 function formatTime12h(timeStr: string): string {
   if (!timeStr) return "";
+  if (timeStr.toUpperCase().includes("AM") || timeStr.toUpperCase().includes("PM")) {
+    return timeStr;
+  }
   const [hStr, mStr] = timeStr.split(":");
   let h = parseInt(hStr, 10);
   const m = mStr || "00";
@@ -108,19 +130,33 @@ export default function BookTable() {
   const [time, setTime] = useState("");
   const [occasion, setOccasion] = useState("None");
   const [instructions, setInstructions] = useState("");
-  const [timeMode, setTimeMode] = useState<"preset" | "custom">("preset");
+
+  // Time Picker State
+  const [showTimePicker, setShowTimePicker] = useState(false);
+  const [pickerStep, setPickerStep] = useState<1 | 2 | 3>(1);
+  const [selectedHour, setSelectedHour] = useState<number | null>(null);
+  const [selectedMinute, setSelectedMinute] = useState<number | null>(null);
+  const [selectedAmpm, setSelectedAmpm] = useState<"AM" | "PM" | null>(null);
+  const [pickerError, setPickerError] = useState("");
 
   // System State
   const [existingBookings, setExistingBookings] = useState<Booking[]>([]);
   const [bookingSuccess, setBookingSuccess] = useState<Booking | null>(null);
   const [formError, setFormError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [settings, setSettings] = useState<any>(() => db.getSettings());
 
   const openingInfo = parseOpeningHours(settings?.timings);
-  const validPresetSlots = defaultTimeSlots.filter((slot) =>
-    isTimeWithinOpeningHours(slot, openingInfo.openMinutes, openingInfo.closeMinutes)
-  );
   const isCurrentTimeValid = !time || isTimeWithinOpeningHours(time, openingInfo.openMinutes, openingInfo.closeMinutes);
+
+  // Helper to validate selected combinations inside the picker
+  const isCombinationValid = (h: number, m: number, ampm: "AM" | "PM"): boolean => {
+    let hr = h;
+    if (ampm === "PM" && hr < 12) hr += 12;
+    if (ampm === "AM" && hr === 12) hr = 0;
+    const totalMinutes = hr * 60 + m;
+    return totalMinutes >= openingInfo.openMinutes && totalMinutes <= openingInfo.closeMinutes;
+  };
 
   useEffect(() => {
     db.init();
@@ -148,13 +184,29 @@ export default function BookTable() {
     }
   }, [phone, sameAsPhone]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     setFormError("");
 
     if (!name || !phone || !date || !time) {
       setFormError("Please fill in all required fields (Name, Phone, Date, Time).");
       return;
+    }
+
+    // Phone format validation (simple 10 digit or international check)
+    const cleanPhone = phone.replace(/[^0-9+]/g, "");
+    if (cleanPhone.length < 10) {
+      setFormError("Please enter a valid 10-digit mobile number.");
+      return;
+    }
+
+    if (!sameAsPhone) {
+      const cleanWhatsapp = whatsapp.replace(/[^0-9+]/g, "");
+      if (cleanWhatsapp.length < 10) {
+        setFormError("Please enter a valid 10-digit WhatsApp number.");
+        return;
+      }
     }
 
     if (!isTimeWithinOpeningHours(time, openingInfo.openMinutes, openingInfo.closeMinutes)) {
@@ -170,8 +222,9 @@ export default function BookTable() {
     }
 
     // Check if slot capacity is reached
+    const targetNormalizedTime = normalizeTo24h(time);
     const slotCount = existingBookings.filter(
-      (b) => b.date === date && b.time === time && b.status !== "Cancelled" && b.status !== "Rejected"
+      (b) => b.date === date && normalizeTo24h(b.time) === targetNormalizedTime && b.status !== "Cancelled" && b.status !== "Rejected"
     ).length;
 
     if (slotCount >= settings.maxReservationsPerSlot) {
@@ -179,23 +232,31 @@ export default function BookTable() {
       return;
     }
 
-    // Save booking
-    const newBooking = db.addBooking({
-      name,
-      phone,
-      whatsapp: sameAsPhone ? phone : whatsapp,
-      email: email || undefined,
-      guests,
-      date,
-      time,
-      occasion,
-      instructions: instructions || undefined
-    });
+    setIsSubmitting(true);
+    try {
+      // Save booking
+      const newBooking = db.addBooking({
+        name,
+        phone,
+        whatsapp: sameAsPhone ? phone : whatsapp,
+        email: email || undefined,
+        guests,
+        date,
+        time,
+        occasion,
+        instructions: instructions || undefined
+      });
 
-    setBookingSuccess(newBooking);
+      // Simulate a small delay for premium feel and UX feedback
+      await new Promise(resolve => setTimeout(resolve, 800));
 
-    // Refresh bookings list
-    setExistingBookings(db.getBookings());
+      setBookingSuccess(newBooking);
+      setExistingBookings(db.getBookings());
+    } catch (err: any) {
+      setFormError(err.message || "Failed to save reservation. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleWhatsAppAction = (type: "client" | "owner") => {
@@ -254,7 +315,7 @@ export default function BookTable() {
                       Exclusive Web Offer
                     </span>
                     <p className="text-sm font-display font-medium leading-relaxed italic text-brand-bg/95">
-                      "{settings?.reservationPromoText || "Reserve your table through our website and receive 10% OFF on your final dining bill."}"
+                      "{db.formatPromoText(settings?.reservationPromoText || "Reserve your table through our website and receive {discount}% OFF on your final dining bill.", settings?.discountPercent ?? 10)}"
                     </p>
                   </div>
                 </div>
@@ -374,86 +435,50 @@ export default function BookTable() {
                       <div>
                         <div className="flex justify-between items-center mb-1">
                           <label className="text-[10px] font-bold uppercase tracking-wider text-brand-dark/60 block">Time *</label>
-                          <div className="flex items-center gap-1 bg-brand-bg/60 p-0.5 rounded-lg border border-brand-gold/20">
-                            <button
-                              type="button"
-                              onClick={() => { setTimeMode("preset"); setTime(""); }}
-                              className={`px-2 py-0.5 rounded text-[9px] font-extrabold uppercase transition-all ${
-                                timeMode === "preset"
-                                  ? "bg-brand-accent text-white shadow-sm"
-                                  : "text-brand-dark/60 hover:text-brand-dark"
-                              }`}
-                            >
-                              Slots
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => { setTimeMode("custom"); setTime(""); }}
-                              className={`px-2 py-0.5 rounded text-[9px] font-extrabold uppercase transition-all ${
-                                timeMode === "custom"
-                                  ? "bg-brand-accent text-white shadow-sm"
-                                  : "text-brand-dark/60 hover:text-brand-dark"
-                              }`}
-                            >
-                              Manual
-                            </button>
-                          </div>
                         </div>
 
-                        {timeMode === "preset" ? (
-                          <div className="relative">
-                            <select
-                              required
-                              value={time}
-                              onChange={(e) => setTime(e.target.value)}
-                              className="w-full bg-brand-bg/35 border border-brand-gold/20 focus:border-brand-accent/60 focus:outline-none pl-10 pr-4 py-2.5 rounded-xl text-xs text-brand-dark appearance-none cursor-pointer font-bold"
-                            >
-                              <option value="">Select Time Slot</option>
-                              {validPresetSlots.map((slot) => (
-                                <option key={slot} value={slot}>
-                                  {formatTime12h(slot)}
-                                </option>
-                              ))}
-                            </select>
-                            <Clock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-brand-dark/45 pointer-events-none" size={14} />
-                          </div>
-                        ) : (
-                          <div className="space-y-1">
-                            <div className="relative">
-                              <input
-                                type="time"
-                                required
-                                value={time}
-                                onChange={(e) => setTime(e.target.value)}
-                                min={openingInfo.minTimeStr}
-                                max={openingInfo.maxTimeStr}
-                                className={`w-full bg-brand-bg/35 border focus:outline-none pl-10 pr-4 py-2 rounded-xl text-xs text-brand-dark font-bold cursor-pointer shadow-inner ${
-                                  time && !isCurrentTimeValid
-                                    ? "border-rose-400 focus:border-rose-500 bg-rose-50/50"
-                                    : "border-brand-gold/20 focus:border-brand-accent/60"
-                                }`}
-                              />
-                              <Clock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-brand-dark/45 pointer-events-none" size={14} />
+                        <div className="space-y-1">
+                          <div
+                            onClick={() => {
+                              setPickerStep(1);
+                              setSelectedHour(null);
+                              setSelectedMinute(null);
+                              setSelectedAmpm(null);
+                              setPickerError("");
+                              setShowTimePicker(true);
+                            }}
+                            className={`w-full bg-brand-bg/35 border px-4 py-2.5 rounded-xl text-xs text-brand-dark font-bold cursor-pointer flex items-center justify-between shadow-inner select-none transition-colors duration-200 ${
+                              time && !isCurrentTimeValid
+                                ? "border-rose-400 bg-rose-50/50"
+                                : "border-brand-gold/20 hover:border-brand-accent/60"
+                            }`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <Clock className="text-brand-dark/45 shrink-0" size={14} />
+                              <span className={time ? "text-brand-dark font-bold" : "text-brand-dark/40 font-normal"}>
+                                {time ? formatTime12h(time) : "Select time"}
+                              </span>
                             </div>
-                            <div className="flex flex-col gap-0.5 px-0.5">
-                              <div className="flex justify-between items-center text-[9px]">
-                                <span className="text-brand-dark/50 font-medium">
-                                  Hours: {openingInfo.formattedOpening}
-                                </span>
-                                {time && isCurrentTimeValid && (
-                                  <span className="font-bold text-brand-accent">
-                                    Selected: {formatTime12h(time)}
-                                  </span>
-                                )}
-                              </div>
-                              {time && !isCurrentTimeValid && (
-                                <span className="text-[9px] font-bold text-rose-600 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded">
-                                  ⚠️ Selected time ({formatTime12h(time)}) is outside restaurant opening hours ({openingInfo.formattedOpening}).
+                            <span className="text-brand-dark/45 text-xs font-normal">◷</span>
+                          </div>
+                          <div className="flex flex-col gap-0.5 px-0.5">
+                            <div className="flex justify-between items-center text-[9px]">
+                              <span className="text-brand-dark/50 font-medium">
+                                Hours: {openingInfo.formattedOpening}
+                              </span>
+                              {time && isCurrentTimeValid && (
+                                <span className="font-bold text-brand-accent">
+                                  Selected: {formatTime12h(time)}
                                 </span>
                               )}
                             </div>
+                            {time && !isCurrentTimeValid && (
+                              <span className="text-[9px] font-bold text-rose-600 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded mt-1">
+                                ⚠️ Selected time ({formatTime12h(time)}) is outside restaurant opening hours ({openingInfo.formattedOpening}).
+                              </span>
+                            )}
                           </div>
-                        )}
+                        </div>
                       </div>
                     </div>
 
@@ -487,10 +512,13 @@ export default function BookTable() {
 
                   <button
                     type="submit"
-                    className="w-full bg-brand-accent hover:bg-brand-dark text-white py-4 rounded-xl text-xs font-black tracking-widest uppercase transition-all duration-300 shadow-md border border-brand-accent/10 flex items-center justify-center gap-2"
+                    disabled={isSubmitting}
+                    className={`w-full bg-brand-accent hover:bg-brand-dark text-white py-4 rounded-xl text-xs font-black tracking-widest uppercase transition-all duration-300 shadow-md border border-brand-accent/10 flex items-center justify-center gap-2 ${
+                      isSubmitting ? "opacity-50 cursor-not-allowed" : ""
+                    }`}
                   >
-                    <span>Request Reservation</span>
-                    <ArrowRight size={14} />
+                    <span>{isSubmitting ? "Processing Request..." : "Request Reservation"}</span>
+                    {!isSubmitting && <ArrowRight size={14} />}
                   </button>
                 </div>
               </form>
@@ -600,6 +628,240 @@ export default function BookTable() {
           )}
         </AnimatePresence>
       </div>
+
+      {/* Custom Time Picker Modal */}
+      <AnimatePresence>
+        {showTimePicker && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl max-w-[320px] w-full p-5 shadow-2xl border border-brand-gold/15 relative space-y-4"
+            >
+              {/* Header */}
+              <div className="text-center relative">
+                <h4 className="font-display font-bold text-sm text-brand-dark uppercase tracking-wider">
+                  {pickerStep === 1 && "Select Hour"}
+                  {pickerStep === 2 && "Select Minute"}
+                  {pickerStep === 3 && "Select AM / PM"}
+                </h4>
+                <button
+                  type="button"
+                  onClick={() => setShowTimePicker(false)}
+                  className="absolute right-0 top-0 text-brand-dark/40 hover:text-brand-dark text-xs p-1 cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Time display indicator */}
+              <div className="bg-brand-bg/45 border border-brand-gold/10 rounded-xl p-3 flex items-center justify-center gap-1.5 text-center">
+                <span
+                  onClick={() => setPickerStep(1)}
+                  className={`text-lg font-bold px-1.5 py-0.5 rounded cursor-pointer transition-colors ${
+                    pickerStep === 1
+                      ? "bg-brand-dark/10 text-brand-dark border border-brand-dark/20"
+                      : selectedHour !== null
+                      ? "text-brand-dark"
+                      : "text-brand-dark/30"
+                  }`}
+                >
+                  {selectedHour !== null ? selectedHour : "--"}
+                </span>
+                <span className="text-lg font-bold text-brand-dark/40">:</span>
+                <span
+                  onClick={() => {
+                    if (selectedHour !== null) setPickerStep(2);
+                  }}
+                  className={`text-lg font-bold px-1.5 py-0.5 rounded transition-colors ${
+                    selectedHour === null
+                      ? "text-brand-dark/20 cursor-not-allowed"
+                      : pickerStep === 2
+                      ? "bg-brand-dark/10 text-brand-dark border border-brand-dark/20 cursor-pointer"
+                      : selectedMinute !== null
+                      ? "text-brand-dark cursor-pointer"
+                      : "text-brand-dark/30 cursor-pointer"
+                  }`}
+                >
+                  {selectedMinute !== null ? String(selectedMinute).padStart(2, "0") : "--"}
+                </span>
+                <span
+                  onClick={() => {
+                    if (selectedHour !== null && selectedMinute !== null) setPickerStep(3);
+                  }}
+                  className={`text-sm font-bold ml-2 px-1.5 py-0.5 rounded transition-colors ${
+                    selectedHour === null || selectedMinute === null
+                      ? "text-brand-dark/20 cursor-not-allowed"
+                      : pickerStep === 3
+                      ? "bg-brand-dark/10 text-brand-dark border border-brand-dark/20 cursor-pointer"
+                      : selectedAmpm !== null
+                      ? "text-brand-dark cursor-pointer"
+                      : "text-brand-dark/30 cursor-pointer"
+                  }`}
+                >
+                  {selectedAmpm !== null ? selectedAmpm : "AM/PM"}
+                </span>
+              </div>
+
+              {/* Error messages if any */}
+              {pickerError && (
+                <div className="bg-rose-50 border border-rose-200 text-rose-700 text-[10px] px-3 py-2 rounded-xl flex items-start gap-1.5 leading-tight shadow-sm">
+                  <AlertTriangle size={12} className="shrink-0 mt-0.5" />
+                  <span>{pickerError}</span>
+                </div>
+              )}
+
+              {/* Step content */}
+              <div className="flex items-center justify-center min-h-[220px]">
+                {pickerStep === 1 && (
+                  <div className="relative w-48 h-48 rounded-full border border-brand-gold/10 bg-brand-bg/15 flex items-center justify-center">
+                    {/* Center dot */}
+                    <div className="w-2.5 h-2.5 rounded-full bg-brand-gold" />
+                    {/* Hour numbers */}
+                    {Array.from({ length: 12 }).map((_, idx) => {
+                      const h = idx + 1;
+                      const angle = (h * 30 - 90) * (Math.PI / 180);
+                      const radius = 68; // fit within 192px circle
+                      const x = Math.cos(angle) * radius;
+                      const y = Math.sin(angle) * radius;
+                      const isSelected = selectedHour === h;
+                      return (
+                        <button
+                          key={h}
+                          type="button"
+                          onClick={() => {
+                            setSelectedHour(h);
+                            setPickerError("");
+                            setTimeout(() => setPickerStep(2), 200);
+                          }}
+                          style={{
+                            left: `calc(50% + ${x}px)`,
+                            top: `calc(50% + ${y}px)`,
+                            transform: "translate(-50%, -50%)",
+                          }}
+                          className={`absolute w-8 h-8 rounded-full flex items-center justify-center text-xs font-black transition-all cursor-pointer ${
+                            isSelected
+                              ? "bg-brand-dark text-white shadow-md scale-110"
+                              : "text-brand-dark/75 hover:bg-brand-dark/10 hover:text-brand-dark"
+                          }`}
+                        >
+                          {h}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {pickerStep === 2 && (
+                  <div className="relative w-48 h-48 rounded-full border border-brand-gold/10 bg-brand-bg/15 flex items-center justify-center">
+                    {/* Center dot */}
+                    <div className="w-2.5 h-2.5 rounded-full bg-brand-gold" />
+                    {/* Minute numbers */}
+                    {Array.from({ length: 12 }).map((_, idx) => {
+                      const m = idx * 5;
+                      const mStr = String(m).padStart(2, "0");
+                      const angle = (idx * 30 - 90) * (Math.PI / 180);
+                      const radius = 68;
+                      const x = Math.cos(angle) * radius;
+                      const y = Math.sin(angle) * radius;
+                      const isSelected = selectedMinute === m;
+                      return (
+                        <button
+                          key={m}
+                          type="button"
+                          onClick={() => {
+                            setSelectedMinute(m);
+                            setPickerError("");
+                            setTimeout(() => setPickerStep(3), 200);
+                          }}
+                          style={{
+                            left: `calc(50% + ${x}px)`,
+                            top: `calc(50% + ${y}px)`,
+                            transform: "translate(-50%, -50%)",
+                          }}
+                          className={`absolute w-8 h-8 rounded-full flex items-center justify-center text-xs font-black transition-all cursor-pointer ${
+                            isSelected
+                              ? "bg-brand-dark text-white shadow-md scale-110"
+                              : "text-brand-dark/75 hover:bg-brand-dark/10 hover:text-brand-dark"
+                          }`}
+                        >
+                          {mStr}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {pickerStep === 3 && (
+                  <div className="flex flex-col items-center justify-center gap-4 w-full">
+                    <span className="text-[10px] font-bold text-brand-dark/50 uppercase tracking-wider mb-2">Select Period</span>
+                    <div className="flex gap-4 w-full max-w-[200px]">
+                      {(["AM", "PM"] as const).map((period) => {
+                        const isSelected = selectedAmpm === period;
+                        return (
+                          <button
+                            key={period}
+                            type="button"
+                            onClick={() => {
+                              setSelectedAmpm(period);
+                              setPickerError("");
+                              
+                              if (selectedHour !== null && selectedMinute !== null) {
+                                const valid = isCombinationValid(selectedHour, selectedMinute, period);
+                                if (!valid) {
+                                  setPickerError("Please select a time between 11:30 AM and 11:45 PM.");
+                                } else {
+                                  const finalTimeStr = `${selectedHour}:${String(selectedMinute).padStart(2, "0")} ${period}`;
+                                  setTime(finalTimeStr);
+                                  setShowTimePicker(false);
+                                }
+                              }
+                            }}
+                            className={`flex-1 py-4 rounded-2xl text-sm font-black transition-all cursor-pointer border ${
+                              isSelected
+                                ? "bg-brand-dark text-white border-brand-dark shadow-md scale-105"
+                                : "bg-brand-bg/20 text-brand-dark/70 border-brand-gold/15 hover:border-brand-dark/50 hover:bg-brand-dark/5"
+                            }`}
+                          >
+                            {period}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Footer navigation */}
+              <div className="flex justify-between items-center pt-2 border-t border-brand-dark/5 text-xs">
+                {pickerStep > 1 ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPickerStep((prev) => (prev - 1) as any);
+                      setPickerError("");
+                    }}
+                    className="text-brand-dark hover:underline font-bold cursor-pointer"
+                  >
+                    ← Back
+                  </button>
+                ) : (
+                  <span />
+                )}
+                <button
+                  type="button"
+                  onClick={() => setShowTimePicker(false)}
+                  className="text-brand-dark/50 hover:text-brand-dark cursor-pointer"
+                >
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
+
