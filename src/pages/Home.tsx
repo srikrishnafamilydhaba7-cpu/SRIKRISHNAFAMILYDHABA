@@ -86,10 +86,43 @@ export default function Home({ previewData }: HomeProps) {
   const [testimonials, setTestimonials] = useState<Review[]>([]);
   const [settings, setSettings] = useState<any>(null);
   const [videoError, setVideoError] = useState(false);
+  
+  const defaultVideoUrl = "https://res.cloudinary.com/or5e9kak/video/upload/v1783771254/WhatsApp_Video_2026-07-11_at_10.04.14_dnyzq3.mp4";
+  const [videoSource, setVideoSource] = useState<string>(defaultVideoUrl);
 
   useEffect(() => {
+    const updateSource = () => {
+      const isMobile = window.innerWidth < 768;
+      const mobileUrl = settings?.heroVideoMobile ? resolveVideoUrl(settings.heroVideoMobile) : "";
+      const desktopUrl = settings?.heroVideo ? resolveVideoUrl(settings.heroVideo) : "";
+      setVideoSource((isMobile && mobileUrl) ? mobileUrl : (desktopUrl || defaultVideoUrl));
+    };
+
+    updateSource();
     setVideoError(false);
+
+    window.addEventListener("resize", updateSource);
+    return () => window.removeEventListener("resize", updateSource);
   }, [settings?.heroVideo, settings?.heroVideoMobile]);
+
+  const handleVideoError = () => {
+    if (videoSource !== defaultVideoUrl) {
+      const isMobile = window.innerWidth < 768;
+      const desktopUrl = settings?.heroVideo ? resolveVideoUrl(settings.heroVideo) : "";
+      const mobileUrl = settings?.heroVideoMobile ? resolveVideoUrl(settings.heroVideoMobile) : "";
+      
+      if (isMobile && videoSource === mobileUrl && desktopUrl && desktopUrl !== videoSource) {
+        console.warn("SKD WARN: Mobile video failed to load, falling back to desktop video.");
+        setVideoSource(desktopUrl);
+      } else {
+        console.warn("SKD WARN: Custom hero video failed to load, falling back to default video.");
+        setVideoSource(defaultVideoUrl);
+      }
+    } else {
+      console.error("SKD ERROR: Default hero video also failed to load.");
+      setVideoError(true);
+    }
+  };
 
   useEffect(() => {
     if (previewData) {
@@ -110,14 +143,24 @@ export default function Home({ previewData }: HomeProps) {
       setTestimonials(approved);
       return;
     }
-
     db.incrementWebsiteVisits();
     const isPreview = window.location.search.includes("preview=true");
     const loadSettings = () => setSettings(isPreview ? db.getSettingsDraft() : db.getSettings());
+    const loadTestimonials = () => {
+      const approved = db.getReviews().filter((r) => r.status === "Approved");
+      setTestimonials(approved);
+    };
+
     loadSettings();
+    loadTestimonials();
+
+    const handleStorageChange = () => {
+      loadSettings();
+      loadTestimonials();
+    };
 
     window.addEventListener(isPreview ? "skd_settings_draft_updated" : "skd_settings_updated", loadSettings);
-    window.addEventListener("storage", loadSettings);
+    window.addEventListener("storage", handleStorageChange);
     
     // Load Dynamic Menu Specials
     const allMenu = db.getMenu();
@@ -132,13 +175,9 @@ export default function Home({ previewData }: HomeProps) {
     }
     setSignatureDishes(signatures);
 
-    // Load Approved Reviews
-    const approved = db.getReviews().filter((r) => r.status === "Approved");
-    setTestimonials(approved);
-
     return () => {
       window.removeEventListener(isPreview ? "skd_settings_draft_updated" : "skd_settings_updated", loadSettings);
-      window.removeEventListener("storage", loadSettings);
+      window.removeEventListener("storage", handleStorageChange);
     };
   }, []);
 
@@ -195,18 +234,15 @@ export default function Home({ previewData }: HomeProps) {
           </div>
         ) : (
           <video
-            key={settings?.heroVideo ? `hero-${resolveVideoUrl(settings.heroVideo)}` : "default-hero"}
+            key={videoSource}
             autoPlay
             loop
             muted
             playsInline
-            onError={() => setVideoError(true)}
+            onError={handleVideoError}
             className="w-full h-full object-cover relative z-10"
           >
-            <source 
-              src={resolveVideoUrl(settings?.heroVideo) || "https://res.cloudinary.com/or5e9kak/video/upload/v1783783688/WhatsApp_Video_2026-07-11_at_20.57.19_c4tq0e.mp4"} 
-              type="video/mp4" 
-            />
+            <source src={videoSource} type="video/mp4" />
             Your browser does not support the video tag.
           </video>
         )}

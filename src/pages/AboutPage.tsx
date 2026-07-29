@@ -1,5 +1,6 @@
-import { ShieldCheck, Leaf, Flame, Sparkles, Heart } from "lucide-react";
-import { motion } from "framer-motion";
+import { useState, useEffect } from "react";
+import { ShieldCheck, Leaf, Flame, Sparkles, Heart, X } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 
 const values = [
   {
@@ -35,6 +36,19 @@ const team = [
 ];
 
 export default function AboutPage() {
+  const [isLegacyModalOpen, setIsLegacyModalOpen] = useState(false);
+
+  useEffect(() => {
+    if (isLegacyModalOpen) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "unset";
+    }
+    return () => {
+      document.body.style.overflow = "unset";
+    };
+  }, [isLegacyModalOpen]);
+
   return (
     <div className="min-h-screen pt-28 pb-20 relative bg-brand-bg/25">
       {/* Noise Overlay */}
@@ -75,24 +89,34 @@ export default function AboutPage() {
                 — Management, Sri Krishna Dhaba
               </span>
             </div>
+            <div className="pt-4">
+              <button
+                onClick={() => setIsLegacyModalOpen(true)}
+                className="inline-flex items-center gap-2 px-6 py-3 bg-[#1B4332] hover:bg-brand-accent text-white hover:text-brand-dark text-xs font-bold uppercase tracking-wider rounded-xl transition-all duration-300 shadow-lg cursor-pointer"
+              >
+                <span>Discover Our Legacy</span>
+                <Sparkles size={14} className="fill-brand-gold/10 text-brand-gold" />
+              </button>
+            </div>
           </div>
 
-          <div className="relative">
-            {/* Masonry image layout */}
-            <div className="grid grid-cols-2 gap-4">
+          <div className="relative flex justify-center lg:justify-end">
+            <div className="relative w-full max-w-sm rounded-[24px] overflow-hidden aspect-[3/4] border border-brand-gold/25 shadow-2xl group bg-brand-dark/5">
               <img
-                src="https://images.unsplash.com/photo-1556910103-1c02745aae4d?w=400&auto=format&fit=crop&q=80"
-                alt="Cooking spices"
-                className="rounded-2xl shadow-md w-full h-[250px] object-cover mt-8"
+                src="/images/owner.png"
+                alt="Sri Krishna Dhaba Founder"
+                className="w-full h-full object-cover object-[center_20%] group-hover:scale-105 transition-transform duration-700"
               />
-              <img
-                src="https://images.unsplash.com/photo-1544025162-d76694265947?w=400&auto=format&fit=crop&q=80"
-                alt="Clay oven cooking"
-                className="rounded-2xl shadow-md w-full h-[250px] object-cover"
-              />
-            </div>
-            {/* Absolute background accent */}
-            <div className="absolute -z-10 -bottom-6 -right-6 w-44 h-44 bg-brand-gold/10 rounded-full blur-2xl" />
+              <div className="absolute inset-0 bg-[#1B4332]/25 opacity-0 group-hover:opacity-100 transition-opacity duration-500 z-10" />
+
+              {/* Hover Overlay Card (Glassmorphism) */}
+              <div className="absolute bottom-6 left-6 right-6 bg-[#FFFDF8]/20 backdrop-blur-lg border border-white/20 rounded-2xl p-4 shadow-xl z-20 translate-y-10 opacity-0 group-hover:translate-y-0 group-hover:opacity-100 transition-all duration-500 text-center">
+                <span className="text-[9px] font-black text-brand-gold uppercase tracking-widest block mb-0.5">Founder & Culinary Visionary</span>
+                <h4 className="font-display font-black text-base text-white tracking-tight">Praveen Kumar Solanki</h4>
+              </div>
+            </div>            {/* Absolute background accents */}
+            <div className="absolute -z-10 -bottom-6 -right-6 w-44 h-44 bg-brand-gold/15 rounded-full blur-3xl animate-pulse" />
+            <div className="absolute -z-10 -top-6 -left-6 w-44 h-44 bg-brand-accent/10 rounded-full blur-3xl" />
           </div>
         </div>
 
@@ -162,6 +186,316 @@ export default function AboutPage() {
           </div>
         </div>
       </div>
+
+      {/* Luxurious Modal Pop-up */}
+      <AnimatePresence>
+        {isLegacyModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsLegacyModalOpen(false)}
+              className="absolute inset-0 bg-brand-dark/70 backdrop-blur-sm"
+            />
+
+            {/* Popup Box */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              transition={{ type: "spring", duration: 0.5 }}
+              className="relative w-full max-w-4xl bg-[#F9F7F4] rounded-[22px] shadow-2xl border border-brand-gold/25 overflow-hidden flex flex-col z-10 max-h-[85vh]"
+            >
+              {/* Noise Overlay */}
+              <div className="absolute inset-0 noise-overlay pointer-events-none -z-10" />
+
+              {/* Modal Header */}
+              <header className="px-6 py-4 border-b border-brand-gold/10 flex justify-between items-center bg-[#F9F7F4]/90 backdrop-blur-md sticky top-0 z-30">
+                <div className="flex items-center gap-3">
+                  <span className="w-1.5 h-6 bg-brand-gold rounded-full" />
+                  <span className="font-display font-extrabold text-xs md:text-sm tracking-widest text-[#1B4332] uppercase">Our Heritage & Legacy</span>
+                </div>
+                <button
+                  onClick={() => setIsLegacyModalOpen(false)}
+                  className="w-8 h-8 rounded-full bg-[#1B4332]/5 hover:bg-[#1B4332] hover:text-white flex items-center justify-center text-[#1B4332] transition-all duration-300 cursor-pointer"
+                >
+                  <X size={16} />
+                </button>
+              </header>
+
+              {/* Modal Scrollable Content */}
+              <div className="flex-1 overflow-y-auto p-6 md:p-10 space-y-16">
+                {/* Hero Section */}
+                <section className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+                  {/* Left Side: Large Image */}
+                  <div className="relative">
+                    <div className="rounded-[24px] overflow-hidden aspect-[4/3] border border-brand-gold/25 shadow-xl">
+                      <img
+                        src="/images/owner.png"
+                        alt="Praveen Kumar Solanki"
+                        className="w-full h-full object-cover object-[center_20%]"
+                      />
+                    </div>
+                    {/* Floating Since Badge */}
+                    <div className="absolute -bottom-3 -left-3 bg-[#1B4332] text-white border border-brand-gold/30 px-4 py-2.5 rounded-xl shadow-lg flex flex-col items-center justify-center">
+                      <span className="text-[8px] uppercase tracking-widest text-brand-gold font-bold">Established</span>
+                      <span className="font-display text-sm font-black tracking-tight text-white">Since 2018</span>
+                    </div>
+                    {/* Floating leaves decorator */}
+                    <div className="absolute -top-3 -right-3 bg-[#F9F7F4] border border-brand-gold/15 p-2 rounded-full shadow-md text-brand-accent animate-bounce" style={{ animationDuration: '3s' }}>
+                      🍃
+                    </div>
+                  </div>
+
+                  {/* Right Side: Welcome info */}
+                  <div className="space-y-4">
+                    <h1 className="font-display font-black text-3xl md:text-4xl text-[#1B4332] uppercase tracking-tight leading-none">
+                      100% Pure Veg
+                    </h1>
+                    <div>
+                      <span className="inline-flex items-center gap-1 bg-[#1B4332]/10 border border-[#1B4332]/25 px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider text-brand-accent">
+                        🍃 Authentic Family Dining
+                      </span>
+                    </div>
+                    <h2 className="font-display font-extrabold text-lg md:text-xl text-[#1B4332]/85 leading-tight">
+                      Welcome to Sri Krishna Family Dhaba
+                    </h2>
+                    <h4 className="font-display font-bold text-sm text-brand-gold italic">
+                      Where Every Meal Feels Like Home
+                    </h4>
+                    <p className="text-xs text-brand-dark/80 leading-relaxed font-sans">
+                      Experience authentic flavors, warm hospitality, and unforgettable family moments crafted with passion and served with love.
+                    </p>
+                  </div>
+                </section>
+
+                {/* Our Philosophy (Glassmorphism card) */}
+                <section className="relative flex justify-center">
+                  <div className="absolute inset-0 bg-brand-gold/5 rounded-2xl blur-xl -z-10" />
+                  <div className="w-full bg-[#1B4332]/5 backdrop-blur-md border border-[#1B4332]/10 rounded-2xl p-6 text-center max-w-2xl space-y-3 hover:border-brand-gold/30 transition-colors duration-500">
+                    <span className="text-[10px] uppercase tracking-widest text-brand-gold font-black block">Our Philosophy</span>
+                    <p className="font-display text-sm md:text-base font-bold text-[#1B4332] leading-relaxed italic">
+                      "Great food is more than taste—it's tradition, togetherness, and memories shared around every table."
+                    </p>
+                    <div className="w-8 h-0.5 bg-brand-gold mx-auto mt-2" />
+                  </div>
+                </section>
+
+                {/* Our Story */}
+                <section className="space-y-4 max-w-2xl mx-auto">
+                  <div className="text-center">
+                    <span className="text-[9px] font-bold text-brand-accent uppercase tracking-widest block mb-0.5">Our Heritage</span>
+                    <h3 className="font-display font-black text-xl text-[#1B4332]">A Journey Built on Passion</h3>
+                  </div>
+                  <div className="space-y-3 text-xs text-brand-dark/85 leading-relaxed font-sans text-justify">
+                    <p>
+                      Every great restaurant begins with a dream. Sri Krishna Family Dhaba was established with a simple vision—to create a place where delicious food, genuine hospitality, and family values come together.
+                    </p>
+                    <p>
+                      From carefully selected ingredients to recipes perfected over time, every dish reflects our commitment to quality and authenticity. Our kitchen follows traditional cooking methods while maintaining the highest standards of hygiene and consistency.
+                    </p>
+                    <p>
+                      Today, we proudly welcome countless guests who return not only for our food but also for the warmth, comfort, and memorable dining experience that defines Sri Krishna Family Dhaba.
+                    </p>
+                  </div>
+                </section>
+
+                {/* Experience Timeline */}
+                <section className="space-y-8">
+                  <div className="text-center">
+                    <span className="text-[9px] font-bold text-brand-gold uppercase tracking-widest block mb-0.5">Milestones</span>
+                    <h3 className="font-display font-black text-xl text-[#1B4332]">Experience Timeline</h3>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6">
+                    {/* Item 1 */}
+                    <div className="relative p-[2px] rounded-[22px] overflow-hidden group cursor-pointer shadow-[0_10px_30px_rgba(0,0,0,0.06)] hover:shadow-[0_20px_45px_rgba(0,0,0,0.12),0_0_20px_rgba(22,163,74,0.25)] hover:-translate-y-2 hover:scale-[1.02] transition-all duration-[350ms] ease-in-out flex">
+                      <div className="absolute inset-[-1000%] bg-[conic-gradient(from_0deg,transparent_40%,#16A34A_47%,#ffffff_49%,#ffffff_51%,#22C55E_53%,transparent_60%)] opacity-70 group-hover:opacity-100 animate-[spin_5s_linear_infinite] group-hover:animate-[spin_2.5s_linear_infinite] pointer-events-none z-0 transition-opacity duration-350" />
+                      <div className="relative bg-gradient-to-b from-[#FFFFFF] to-[#FCFCFC] rounded-[20px] p-6 flex flex-col justify-between overflow-hidden min-h-[190px] z-10 w-full h-full">
+                        <div className="absolute top-4 right-6 font-display font-black text-4xl text-black/[0.10] select-none">01</div>
+                        <div className="space-y-4">
+                          <div className="w-11 h-11 rounded-full bg-[#F5F5F5] border border-black/[0.04] shadow-inner flex items-center justify-center group-hover:bg-[#EAEAEA] transition-colors duration-[350ms] self-start">
+                            <span className="text-lg group-hover:scale-110 group-hover:rotate-[5deg] transition-transform duration-[350ms] block">🌱</span>
+                          </div>
+                          <div className="space-y-2 text-left">
+                            <h5 className="font-display font-black text-sm text-[#1B4332] uppercase tracking-wider">Foundation</h5>
+                            <div className="w-10 h-[3px] rounded-full bg-[#2D2D2D] group-hover:w-[60px] transition-all duration-[350ms]" />
+                            <p className="text-[10px] text-brand-dark/70 leading-relaxed font-sans pt-1">A dream to serve authentic family-style meals.</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Item 2 */}
+                    <div className="relative p-[2px] rounded-[22px] overflow-hidden group cursor-pointer shadow-[0_10px_30px_rgba(0,0,0,0.06)] hover:shadow-[0_20px_45px_rgba(0,0,0,0.12),0_0_20px_rgba(22,163,74,0.25)] hover:-translate-y-2 hover:scale-[1.02] transition-all duration-[350ms] ease-in-out flex">
+                      <div className="absolute inset-[-1000%] bg-[conic-gradient(from_0deg,transparent_40%,#16A34A_47%,#ffffff_49%,#ffffff_51%,#22C55E_53%,transparent_60%)] opacity-70 group-hover:opacity-100 animate-[spin_5s_linear_infinite] group-hover:animate-[spin_2.5s_linear_infinite] pointer-events-none z-0 transition-opacity duration-350" />
+                      <div className="relative bg-gradient-to-b from-[#FFFFFF] to-[#FCFCFC] rounded-[20px] p-6 flex flex-col justify-between overflow-hidden min-h-[190px] z-10 w-full h-full">
+                        <div className="absolute top-4 right-6 font-display font-black text-4xl text-black/[0.10] select-none">02</div>
+                        <div className="space-y-4">
+                          <div className="w-11 h-11 rounded-full bg-[#F5F5F5] border border-black/[0.04] shadow-inner flex items-center justify-center group-hover:bg-[#EAEAEA] transition-colors duration-[350ms] self-start">
+                            <span className="text-lg group-hover:scale-110 group-hover:rotate-[5deg] transition-transform duration-[350ms] block">🍛</span>
+                          </div>
+                          <div className="space-y-2 text-left">
+                            <h5 className="font-display font-black text-sm text-[#1B4332] uppercase tracking-wider">Growth</h5>
+                            <div className="w-10 h-[3px] rounded-full bg-[#2D2D2D] group-hover:w-[60px] transition-all duration-[350ms]" />
+                            <p className="text-[10px] text-brand-dark/70 leading-relaxed font-sans pt-1">Expanded our menu with signature dishes loved by customers.</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Item 3 */}
+                    <div className="relative p-[2px] rounded-[22px] overflow-hidden group cursor-pointer shadow-[0_10px_30px_rgba(0,0,0,0.06)] hover:shadow-[0_20px_45px_rgba(0,0,0,0.12),0_0_20px_rgba(22,163,74,0.25)] hover:-translate-y-2 hover:scale-[1.02] transition-all duration-[350ms] ease-in-out flex">
+                      <div className="absolute inset-[-1000%] bg-[conic-gradient(from_0deg,transparent_40%,#16A34A_47%,#ffffff_49%,#ffffff_51%,#22C55E_53%,transparent_60%)] opacity-70 group-hover:opacity-100 animate-[spin_5s_linear_infinite] group-hover:animate-[spin_2.5s_linear_infinite] pointer-events-none z-0 transition-opacity duration-350" />
+                      <div className="relative bg-gradient-to-b from-[#FFFFFF] to-[#FCFCFC] rounded-[20px] p-6 flex flex-col justify-between overflow-hidden min-h-[190px] z-10 w-full h-full">
+                        <div className="absolute top-4 right-6 font-display font-black text-4xl text-black/[0.10] select-none">03</div>
+                        <div className="space-y-4">
+                          <div className="w-11 h-11 rounded-full bg-[#F5F5F5] border border-black/[0.04] shadow-inner flex items-center justify-center group-hover:bg-[#EAEAEA] transition-colors duration-[350ms] self-start">
+                            <span className="text-lg group-hover:scale-110 group-hover:rotate-[5deg] transition-transform duration-[350ms] block">❤️</span>
+                          </div>
+                          <div className="space-y-2 text-left">
+                            <h5 className="font-display font-black text-sm text-[#1B4332] uppercase tracking-wider">Trust</h5>
+                            <div className="w-10 h-[3px] rounded-full bg-[#2D2D2D] group-hover:w-[60px] transition-all duration-[350ms]" />
+                            <p className="text-[10px] text-brand-dark/70 leading-relaxed font-sans pt-1">Built lasting relationships through quality, consistency, and hospitality.</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Item 4 */}
+                    <div className="relative p-[2px] rounded-[22px] overflow-hidden group cursor-pointer shadow-[0_10px_30px_rgba(0,0,0,0.06)] hover:shadow-[0_20px_45px_rgba(0,0,0,0.12),0_0_20px_rgba(22,163,74,0.25)] hover:-translate-y-2 hover:scale-[1.02] transition-all duration-[350ms] ease-in-out flex">
+                      <div className="absolute inset-[-1000%] bg-[conic-gradient(from_0deg,transparent_40%,#16A34A_47%,#ffffff_49%,#ffffff_51%,#22C55E_53%,transparent_60%)] opacity-70 group-hover:opacity-100 animate-[spin_5s_linear_infinite] group-hover:animate-[spin_2.5s_linear_infinite] pointer-events-none z-0 transition-opacity duration-350" />
+                      <div className="relative bg-gradient-to-b from-[#FFFFFF] to-[#FCFCFC] rounded-[20px] p-6 flex flex-col justify-between overflow-hidden min-h-[190px] z-10 w-full h-full">
+                        <div className="absolute top-4 right-6 font-display font-black text-4xl text-black/[0.10] select-none">04</div>
+                        <div className="space-y-4">
+                          <div className="w-11 h-11 rounded-full bg-[#F5F5F5] border border-black/[0.04] shadow-inner flex items-center justify-center group-hover:bg-[#EAEAEA] transition-colors duration-[350ms] self-start">
+                            <span className="text-lg group-hover:scale-110 group-hover:rotate-[5deg] transition-transform duration-[350ms] block">🏆</span>
+                          </div>
+                          <div className="space-y-2 text-left">
+                            <h5 className="font-display font-black text-sm text-[#1B4332] uppercase tracking-wider">Today</h5>
+                            <div className="w-10 h-[3px] rounded-full bg-[#2D2D2D] group-hover:w-[60px] transition-all duration-[350ms]" />
+                            <p className="text-[10px] text-brand-dark/70 leading-relaxed font-sans pt-1">A preferred destination for families seeking delicious food.</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                {/* Why Families Choose Us */}
+                <section className="space-y-8">
+                  <div className="text-center">
+                    <span className="text-[9px] font-bold text-brand-accent uppercase tracking-widest block mb-0.5">Our Values</span>
+                    <h3 className="font-display font-black text-xl text-[#1B4332]">Why Families Choose Us</h3>
+                  </div>
+
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                    {/* Card 1 */}
+                    <div className="relative p-[2px] rounded-[22px] overflow-hidden group cursor-pointer shadow-[0_10px_30px_rgba(0,0,0,0.06)] hover:shadow-[0_20px_45px_rgba(0,0,0,0.12),0_0_20px_rgba(22,163,74,0.25)] hover:-translate-y-2 hover:scale-[1.02] transition-all duration-[350ms] ease-in-out flex">
+                      <div className="absolute inset-[-1000%] bg-[conic-gradient(from_0deg,transparent_40%,#16A34A_47%,#ffffff_49%,#ffffff_51%,#22C55E_53%,transparent_60%)] opacity-70 group-hover:opacity-100 animate-[spin_5s_linear_infinite] group-hover:animate-[spin_2.5s_linear_infinite] pointer-events-none z-0 transition-opacity duration-350" />
+                      <div className="relative bg-gradient-to-b from-[#FFFFFF] to-[#FCFCFC] rounded-[20px] p-6 flex flex-col justify-between overflow-hidden min-h-[190px] z-10 w-full h-full">
+                        <div className="absolute top-4 right-6 font-display font-black text-4xl text-black/[0.10] select-none">01</div>
+                        <div className="space-y-4">
+                          <div className="w-11 h-11 rounded-full bg-[#F5F5F5] border border-black/[0.04] shadow-inner flex items-center justify-center group-hover:bg-[#EAEAEA] transition-colors duration-[350ms] self-start">
+                            <span className="text-lg group-hover:scale-110 group-hover:rotate-[5deg] transition-transform duration-[350ms] block">🍽️</span>
+                          </div>
+                          <div className="space-y-2 text-left">
+                            <h5 className="font-display font-bold text-xs text-[#1B4332] uppercase tracking-wider">Authentic Recipes</h5>
+                            <div className="w-10 h-[3px] rounded-full bg-[#2D2D2D] group-hover:w-[60px] transition-all duration-[350ms]" />
+                            <p className="text-[10px] text-brand-dark/70 leading-relaxed font-sans pt-1">Traditional flavors prepared with care.</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Card 2 */}
+                    <div className="relative p-[2px] rounded-[22px] overflow-hidden group cursor-pointer shadow-[0_10px_30px_rgba(0,0,0,0.06)] hover:shadow-[0_20px_45px_rgba(0,0,0,0.12),0_0_20px_rgba(22,163,74,0.25)] hover:-translate-y-2 hover:scale-[1.02] transition-all duration-[350ms] ease-in-out flex">
+                      <div className="absolute inset-[-1000%] bg-[conic-gradient(from_0deg,transparent_40%,#16A34A_47%,#ffffff_49%,#ffffff_51%,#22C55E_53%,transparent_60%)] opacity-70 group-hover:opacity-100 animate-[spin_5s_linear_infinite] group-hover:animate-[spin_2.5s_linear_infinite] pointer-events-none z-0 transition-opacity duration-350" />
+                      <div className="relative bg-gradient-to-b from-[#FFFFFF] to-[#FCFCFC] rounded-[20px] p-6 flex flex-col justify-between overflow-hidden min-h-[190px] z-10 w-full h-full">
+                        <div className="absolute top-4 right-6 font-display font-black text-4xl text-black/[0.10] select-none">02</div>
+                        <div className="space-y-4">
+                          <div className="w-11 h-11 rounded-full bg-[#F5F5F5] border border-black/[0.04] shadow-inner flex items-center justify-center group-hover:bg-[#EAEAEA] transition-colors duration-[350ms] self-start">
+                            <span className="text-lg group-hover:scale-110 group-hover:rotate-[5deg] transition-transform duration-[350ms] block">🥬</span>
+                          </div>
+                          <div className="space-y-2 text-left">
+                            <h5 className="font-display font-bold text-xs text-[#1B4332] uppercase tracking-wider">Fresh Ingredients</h5>
+                            <div className="w-10 h-[3px] rounded-full bg-[#2D2D2D] group-hover:w-[60px] transition-all duration-[350ms]" />
+                            <p className="text-[10px] text-brand-dark/70 leading-relaxed font-sans pt-1">Quality ingredients sourced every day.</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Card 3 */}
+                    <div className="relative p-[2px] rounded-[22px] overflow-hidden group cursor-pointer shadow-[0_10px_30px_rgba(0,0,0,0.06)] hover:shadow-[0_20px_45px_rgba(0,0,0,0.12),0_0_20px_rgba(22,163,74,0.25)] hover:-translate-y-2 hover:scale-[1.02] transition-all duration-[350ms] ease-in-out flex">
+                      <div className="absolute inset-[-1000%] bg-[conic-gradient(from_0deg,transparent_40%,#16A34A_47%,#ffffff_49%,#ffffff_51%,#22C55E_53%,transparent_60%)] opacity-70 group-hover:opacity-100 animate-[spin_5s_linear_infinite] group-hover:animate-[spin_2.5s_linear_infinite] pointer-events-none z-0 transition-opacity duration-350" />
+                      <div className="relative bg-gradient-to-b from-[#FFFFFF] to-[#FCFCFC] rounded-[20px] p-6 flex flex-col justify-between overflow-hidden min-h-[190px] z-10 w-full h-full">
+                        <div className="absolute top-4 right-6 font-display font-black text-4xl text-black/[0.10] select-none">03</div>
+                        <div className="space-y-4">
+                          <div className="w-11 h-11 rounded-full bg-[#F5F5F5] border border-black/[0.04] shadow-inner flex items-center justify-center group-hover:bg-[#EAEAEA] transition-colors duration-[350ms] self-start">
+                            <span className="text-lg group-hover:scale-110 group-hover:rotate-[5deg] transition-transform duration-[350ms] block">🏡</span>
+                          </div>
+                          <div className="space-y-2 text-left">
+                            <h5 className="font-display font-bold text-xs text-[#1B4332] uppercase tracking-wider">Family Atmosphere</h5>
+                            <div className="w-10 h-[3px] rounded-full bg-[#2D2D2D] group-hover:w-[60px] transition-all duration-[350ms]" />
+                            <p className="text-[10px] text-brand-dark/70 leading-relaxed font-sans pt-1">Comfortable spaces designed for family gatherings.</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Card 4 */}
+                    <div className="relative p-[2px] rounded-[22px] overflow-hidden group cursor-pointer shadow-[0_10px_30px_rgba(0,0,0,0.06)] hover:shadow-[0_20px_45px_rgba(0,0,0,0.12),0_0_20px_rgba(22,163,74,0.25)] hover:-translate-y-2 hover:scale-[1.02] transition-all duration-[350ms] ease-in-out flex">
+                      <div className="absolute inset-[-1000%] bg-[conic-gradient(from_0deg,transparent_40%,#16A34A_47%,#ffffff_49%,#ffffff_51%,#22C55E_53%,transparent_60%)] opacity-70 group-hover:opacity-100 animate-[spin_5s_linear_infinite] group-hover:animate-[spin_2.5s_linear_infinite] pointer-events-none z-0 transition-opacity duration-350" />
+                      <div className="relative bg-gradient-to-b from-[#FFFFFF] to-[#FCFCFC] rounded-[20px] p-6 flex flex-col justify-between overflow-hidden min-h-[190px] z-10 w-full h-full">
+                        <div className="absolute top-4 right-6 font-display font-black text-4xl text-black/[0.10] select-none">04</div>
+                        <div className="space-y-4">
+                          <div className="w-11 h-11 rounded-full bg-[#F5F5F5] border border-black/[0.04] shadow-inner flex items-center justify-center group-hover:bg-[#EAEAEA] transition-colors duration-[350ms] self-start">
+                            <span className="text-lg group-hover:scale-110 group-hover:rotate-[5deg] transition-transform duration-[350ms] block">⭐</span>
+                          </div>
+                          <div className="space-y-2 text-left">
+                            <h5 className="font-display font-bold text-xs text-[#1B4332] uppercase tracking-wider">Trusted Quality</h5>
+                            <div className="w-10 h-[3px] rounded-full bg-[#2D2D2D] group-hover:w-[60px] transition-all duration-[350ms]" />
+                            <p className="text-[10px] text-brand-dark/70 leading-relaxed font-sans pt-1">Consistent taste and exceptional service.</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                {/* Signature Promise */}
+                <section className="bg-[#1B4332] text-white rounded-2xl p-6 md:p-8 relative overflow-hidden border border-brand-gold/20 shadow-lg">
+                  <div className="absolute top-0 right-0 w-48 h-48 bg-brand-accent/5 rounded-full blur-2xl pointer-events-none" />
+                  <div className="relative z-10 max-w-xl mx-auto text-center space-y-3">
+                    <span className="text-[8px] font-bold text-brand-gold uppercase tracking-widest block">Signature Promise</span>
+                    <h4 className="font-display font-black text-lg text-white">Our Promise</h4>
+                    <p className="text-[10px] text-brand-bg/85 leading-relaxed font-sans">
+                      Every guest who walks through our doors is treated like family. We are committed to serving fresh food, maintaining exceptional hygiene, and creating a dining experience that keeps you coming back.
+                    </p>
+                  </div>
+                </section>
+              </div>
+
+              {/* Modal Footer */}
+              <footer className="px-6 py-4 border-t border-brand-gold/10 flex justify-center bg-[#F9F7F4]/95 backdrop-blur-md sticky bottom-0 z-30">
+                <button
+                  onClick={() => setIsLegacyModalOpen(false)}
+                  className="px-8 py-2.5 bg-[#1B4332] hover:bg-brand-accent text-white hover:text-brand-dark flex items-center justify-center text-xs font-bold uppercase tracking-wider rounded-xl transition-all duration-300 shadow-md cursor-pointer"
+                >
+                  Close
+                </button>
+              </footer>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
+
+
+
+

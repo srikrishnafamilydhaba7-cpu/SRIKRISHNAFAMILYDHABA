@@ -674,7 +674,7 @@ export default function AdminPortal() {
     const s = settingsDraft || settings;
     if (s) {
       setCmsHeroVideo(s.heroVideo || "https://res.cloudinary.com/or5e9kak/video/upload/v1783783688/WhatsApp_Video_2026-07-11_at_20.57.19_c4tq0e.mp4");
-      setCmsHeroVideoMobile("");
+      setCmsHeroVideoMobile(s.heroVideoMobile || "");
       setCmsTimings(s.timings);
       setCmsPhone(s.contactPhone);
       setCmsEmail(s.contactEmail);
@@ -1833,18 +1833,16 @@ function extractIdFromQR(decodedText: string): string {
   // REVIEWS MODERATION ACTIONS
   // ----------------------------------------------------
   const handleUpdateReviewStatus = (id: string, status: Review["status"]) => {
-    const reviews = db.getReviews();
-    const index = reviews.findIndex((r) => r.id === id);
-    if (index !== -1) {
-      reviews[index].status = status;
-      localStorage.setItem("skd_reviews", JSON.stringify(reviews));
-      
-      const rev = reviews[index];
+    try {
+      db.updateReviewStatus(id, status);
+      const rev = reviews.find((r) => r.id === id) || { name: id, source: "Website Guest" };
       (db as any).addAuditLog(
         "Review Moderation Update",
         `Set review by ${rev.name} (Source: ${rev.source}) status to ${status}`
       );
       loadData();
+    } catch (err) {
+      console.error("Failed to update review status:", err);
     }
   };
 
@@ -4737,7 +4735,7 @@ function formatPhone(phoneStr: string): string {
               
               <form onSubmit={handleSaveCMSDraft} className="space-y-5">
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-brand-dark uppercase tracking-wider block">Hero Video URL</label>
+                  <label className="text-[10px] font-bold text-brand-dark uppercase tracking-wider block">Hero Video URL (Desktop/Laptop View)</label>
                   <input
                     type="url"
                     value={cmsHeroVideo}
@@ -4745,7 +4743,19 @@ function formatPhone(phoneStr: string): string {
                     className="w-full bg-brand-bg/30 border border-brand-dark/35 rounded-xl py-2.5 px-4 text-xs focus:outline-none focus:border-brand-dark/70"
                     required
                   />
-                  <span className="text-[10px] text-brand-dark/45 italic">Direct video file links (.mp4) only. Automatically styled for all devices.</span>
+                  <span className="text-[10px] text-brand-dark/45 italic">Direct video file links (.mp4) only. Used for the desktop hero background.</span>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-brand-dark uppercase tracking-wider block">Hero Video URL (Mobile View - Reel Format)</label>
+                  <input
+                    type="url"
+                    value={cmsHeroVideoMobile}
+                    onChange={(e) => setCmsHeroVideoMobile(e.target.value)}
+                    className="w-full bg-brand-bg/30 border border-brand-dark/35 rounded-xl py-2.5 px-4 text-xs focus:outline-none focus:border-brand-dark/70"
+                    placeholder="Optional (falls back to desktop video if empty)"
+                  />
+                  <span className="text-[10px] text-brand-dark/45 italic">Direct video file links (.mp4) only. Displays in full-screen vertical reel format on mobile devices.</span>
                 </div>
  
                 <div className="space-y-1.5">

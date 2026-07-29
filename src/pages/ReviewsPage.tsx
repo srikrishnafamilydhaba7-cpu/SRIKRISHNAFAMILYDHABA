@@ -27,11 +27,11 @@ export default function ReviewsPage() {
     // Show only Approved reviews on public page
     setReviews(db.getReviews().filter((r) => r.status === "Approved"));
   };
-
   useEffect(() => {
     loadReviews();
+    window.addEventListener("storage", loadReviews);
+    return () => window.removeEventListener("storage", loadReviews);
   }, []);
-
   // Calculate statistics
   const stats = useMemo(() => {
     const total = reviews.length;
