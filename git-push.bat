@@ -7,10 +7,8 @@ echo.
 :: Stage all changes
 echo Staging all changes...
 git add .
-if %ERRORLEVEL% neq 0 (
-    echo Error: Failed to stage changes.
-    pause
-    exit /b %ERRORLEVEL%
+if errorlevel 1 (
+    echo Warning: Failed to stage changes.
 )
 
 :: Prompt for commit message
@@ -21,21 +19,16 @@ if "%commit_message%"=="" set commit_message=Update code
 echo.
 echo Committing changes...
 git commit -m "%commit_message%"
-if %ERRORLEVEL% neq 0 (
-    echo Error: Failed to commit changes.
-    echo (Maybe there are no changes to commit?)
-    pause
-    exit /b %ERRORLEVEL%
-)
 
 :: Push to main branch
 echo.
 echo Pushing to GitHub...
 git push origin main
-if %ERRORLEVEL% neq 0 (
+if errorlevel 1 (
+    echo.
     echo Error: Failed to push to remote repository.
     pause
-    exit /b %ERRORLEVEL%
+    exit /b 1
 )
 
 echo.
