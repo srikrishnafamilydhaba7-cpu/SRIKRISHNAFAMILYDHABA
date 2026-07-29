@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Award, AlertTriangle, Calendar, Gift, Sparkles, CheckCircle2 } from "lucide-react";
+import { AlertTriangle, Calendar, Sparkles, CheckCircle2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { db } from "../utils/db";
 

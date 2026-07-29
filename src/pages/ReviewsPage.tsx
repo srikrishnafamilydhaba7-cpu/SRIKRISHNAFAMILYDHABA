@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { Star, Search, SlidersHorizontal, MessageSquarePlus, CheckCircle2, AlertCircle, X } from "lucide-react";
+import { Star, Search, MessageSquarePlus, CheckCircle2, AlertCircle, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import TestimonialCard from "../components/TestimonialCard";
 import { db } from "../utils/db";
