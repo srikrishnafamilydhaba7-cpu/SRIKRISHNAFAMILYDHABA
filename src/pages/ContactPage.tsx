@@ -71,6 +71,7 @@ export default function ContactPage() {
   const instagramUrl = settings?.instagramUrl || "https://instagram.com";
   const facebookUrl = settings?.facebookUrl || "https://facebook.com";
   const zomatoUrl = settings?.zomatoUrl || "https://www.zomato.com/hyderabad/search?q=Sri%20Krishna%20Family%20Dhaba";
+  const swiggyUrl = settings?.swiggyUrl || "https://www.swiggy.com/search?query=Sri%20Krishna%20Family%20Dhaba";
 
   return (
     <div className="min-h-screen pt-28 pb-20 relative bg-brand-bg">
@@ -203,7 +204,7 @@ export default function ContactPage() {
 
               {/* Swiggy */}
               <a
-                href="https://www.swiggy.com/search?query=Sri%20Krishna%20Family%20Dhaba"
+                href={swiggyUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center justify-between bg-white rounded-2xl p-5 shadow-sm border-l-4 border-orange-500 hover:shadow-md transition-shadow group"

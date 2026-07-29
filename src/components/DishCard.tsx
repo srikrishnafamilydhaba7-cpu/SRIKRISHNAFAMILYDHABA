@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Star, X, Heart, ShieldAlert, Sparkles, ShoppingBag } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { formatPrice } from "../utils/menuHelpers";
+import { formatPrice, resolveAssetUrl } from "../utils/menuHelpers";
 import WhatsAppIcon from "./WhatsAppIcon";
 import { db } from "../utils/db";
 
@@ -76,7 +76,7 @@ export default function DishCard({ dish, onClickOverride, onOrderOverride, showI
             {/* Top: Image Section */}
             <div className="relative w-full aspect-[4/3] overflow-hidden bg-brand-dark/5 shrink-0">
               <img 
-                src={dish.image} 
+                src={resolveAssetUrl(dish.image)} 
                 alt={dish.title}
                 className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
               />
@@ -283,7 +283,7 @@ export default function DishCard({ dish, onClickOverride, onOrderOverride, showI
               <div className="overflow-y-auto pr-1 mb-6 space-y-4">
                 {finalShowImage && dish.image && (
                   <div className="w-full aspect-[16/9] rounded-2xl overflow-hidden mb-4 bg-brand-dark/5 shadow-sm">
-                    <img src={dish.image} alt={dish.title} className="w-full h-full object-cover" />
+                    <img src={resolveAssetUrl(dish.image)} alt={dish.title} className="w-full h-full object-cover" />
                   </div>
                 )}
                 {/* Rating & Prep Time */}

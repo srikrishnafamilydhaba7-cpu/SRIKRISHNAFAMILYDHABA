@@ -19,3 +19,16 @@ export function getNumericPrice(price: number | string): number {
   const parsed = parseFloat(cleaned);
   return isNaN(parsed) ? 0 : parsed;
 }
+
+export function resolveAssetUrl(url: string): string {
+  if (!url) return url;
+  if (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("data:")) {
+    return url;
+  }
+  // Check if we are running in the admin portal during local development
+  if (typeof window !== "undefined" && window.location.port === "5174") {
+    // Prepend the main site host (localhost:5173) to resolve relative paths
+    return `http://localhost:5173${url.startsWith("/") ? "" : "/"}${url}`;
+  }
+  return url;
+}

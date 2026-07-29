@@ -159,6 +159,11 @@ export interface RestaurantSettings {
   contactAddress: string;
   googleMapsEmbedUrl: string;
   heroVideo?: string;
+  heroVideoMobile?: string;
+  instagramUrl?: string;
+  facebookUrl?: string;
+  zomatoUrl?: string;
+  swiggyUrl?: string;
   // Promo visibility toggles
   showWebExclusiveBar: boolean;   // top announcement bar
   showMenuPromo: boolean;          // promo banner on menu page

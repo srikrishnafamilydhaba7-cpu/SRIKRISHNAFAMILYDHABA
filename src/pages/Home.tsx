@@ -48,6 +48,15 @@ const branches: Branch[] = [
 
 // Testimonials loaded dynamically from database
 
+const resolveVideoUrl = (url: string | undefined): string => {
+  if (!url) return "";
+  if (url.startsWith("http://") || url.startsWith("https://")) {
+    return url;
+  }
+  // If it's a relative video filename, resolve it to the default Cloudinary directory
+  return `https://res.cloudinary.com/or5e9kak/video/upload/v1783783688/${url}`;
+};
+
 export interface HomeProps {
   previewData?: any;
 }
@@ -82,10 +91,11 @@ export default function Home({ previewData }: HomeProps) {
     }
 
     db.incrementWebsiteVisits();
-    const loadSettings = () => setSettings(db.getSettings());
+    const isPreview = window.location.search.includes("preview=true");
+    const loadSettings = () => setSettings(isPreview ? db.getSettingsDraft() : db.getSettings());
     loadSettings();
 
-    window.addEventListener("skd_settings_updated", loadSettings);
+    window.addEventListener(isPreview ? "skd_settings_draft_updated" : "skd_settings_updated", loadSettings);
     window.addEventListener("storage", loadSettings);
     
     // Load Dynamic Menu Specials
@@ -106,7 +116,7 @@ export default function Home({ previewData }: HomeProps) {
     setTestimonials(approved);
 
     return () => {
-      window.removeEventListener("skd_settings_updated", loadSettings);
+      window.removeEventListener(isPreview ? "skd_settings_draft_updated" : "skd_settings_updated", loadSettings);
       window.removeEventListener("storage", loadSettings);
     };
   }, []);
@@ -134,6 +144,7 @@ export default function Home({ previewData }: HomeProps) {
   const instagramUrl = settings?.instagramUrl || "https://instagram.com";
   const facebookUrl = settings?.facebookUrl || "https://facebook.com";
   const zomatoUrl = settings?.zomatoUrl || "https://www.zomato.com/hyderabad/search?q=Sri%20Krishna%20Family%20Dhaba";
+  const swiggyUrl = settings?.swiggyUrl || "https://www.swiggy.com/search?query=Sri%20Krishna%20Family%20Dhaba";
 
   const scrollToNext = () => {
     const nextSection = document.getElementById("signature-dishes");
@@ -163,34 +174,69 @@ export default function Home({ previewData }: HomeProps) {
           </div>
         ) : (
           <>
-            {/* Blurred background video for filling portrait screens on mobile */}
+            {/* Mobile Video: Only render and show if heroVideoMobile is provided */}
+            {settings?.heroVideoMobile ? (
+              <video
+                key={resolveVideoUrl(settings.heroVideoMobile)}
+                autoPlay
+                loop
+                muted
+                playsInline
+                onError={() => setVideoError(true)}
+                className="w-full h-full object-cover block md:hidden relative z-10"
+              >
+                <source src={resolveVideoUrl(settings.heroVideoMobile)} type="video/mp4" />
+                Your browser does not support the video tag.
+              </video>
+            ) : (
+              <>
+                {/* Blurred background video for filling portrait screens on mobile (Fallback when no mobile-specific video is set) */}
+                <video
+                  key={settings?.heroVideo ? `bg-${resolveVideoUrl(settings.heroVideo)}` : "default-bg"}
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                  onError={() => setVideoError(true)}
+                  className="absolute inset-0 w-full h-full object-cover blur-3xl opacity-35 scale-105 pointer-events-none md:hidden"
+                >
+                  <source 
+                    src={resolveVideoUrl(settings?.heroVideo) || "https://res.cloudinary.com/or5e9kak/video/upload/v1783771254/WhatsApp_Video_2026-07-11_at_10.04.14_dnyzq3.mp4"} 
+                    type="video/mp4" 
+                  />
+                </video>
+         
+                {/* Main foreground video on mobile (Fallback when no mobile-specific video is set) */}
+                <video
+                  key={settings?.heroVideo ? `fg-${resolveVideoUrl(settings.heroVideo)}` : "default-fg"}
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                  onError={() => setVideoError(true)}
+                  className="w-full h-full object-contain relative z-10 md:hidden"
+                >
+                  <source 
+                    src={resolveVideoUrl(settings?.heroVideo) || "https://res.cloudinary.com/or5e9kak/video/upload/v1783771254/WhatsApp_Video_2026-07-11_at_10.04.14_dnyzq3.mp4"} 
+                    type="video/mp4" 
+                  />
+                  Your browser does not support the video tag.
+                </video>
+              </>
+            )}
+
+            {/* Desktop foreground video (always hidden on mobile, shown on desktop) */}
             <video
-              key={settings?.heroVideo || "default"}
+              key={settings?.heroVideo ? `desktop-${resolveVideoUrl(settings.heroVideo)}` : "default-desktop"}
               autoPlay
               loop
               muted
               playsInline
               onError={() => setVideoError(true)}
-              className="absolute inset-0 w-full h-full object-cover blur-3xl opacity-35 scale-105 pointer-events-none md:hidden"
+              className="w-full h-full object-cover hidden md:block relative z-10"
             >
               <source 
-                src={settings?.heroVideo || "https://res.cloudinary.com/or5e9kak/video/upload/v1783771254/WhatsApp_Video_2026-07-11_at_10.04.14_dnyzq3.mp4"} 
-                type="video/mp4" 
-              />
-            </video>
-     
-            {/* Main foreground video */}
-            <video
-              key={settings?.heroVideo || "default"}
-              autoPlay
-              loop
-              muted
-              playsInline
-              onError={() => setVideoError(true)}
-              className="w-full h-full object-contain md:object-cover relative z-10"
-            >
-              <source 
-                src={settings?.heroVideo || "https://res.cloudinary.com/or5e9kak/video/upload/v1783771254/WhatsApp_Video_2026-07-11_at_10.04.14_dnyzq3.mp4"} 
+                src={resolveVideoUrl(settings?.heroVideo) || "https://res.cloudinary.com/or5e9kak/video/upload/v1783771254/WhatsApp_Video_2026-07-11_at_10.04.14_dnyzq3.mp4"} 
                 type="video/mp4" 
               />
               Your browser does not support the video tag.
@@ -517,7 +563,7 @@ export default function Home({ previewData }: HomeProps) {
 
                 {/* Swiggy */}
                 <a
-                  href="https://www.swiggy.com/search?query=Sri%20Krishna%20Family%20Dhaba"
+                  href={swiggyUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center justify-between bg-white rounded-2xl p-5 shadow-sm border-l-4 border-orange-500 hover:shadow-md transition-shadow group"

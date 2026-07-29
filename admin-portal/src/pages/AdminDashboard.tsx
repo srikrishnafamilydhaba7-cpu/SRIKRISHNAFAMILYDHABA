@@ -13,7 +13,6 @@ import { EmailAuthProvider, reauthenticateWithCredential } from "firebase/auth";
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import type { Booking, Review, GalleryItem, ContactInquiry, RestaurantSettings, LoyaltyVoucher, WhatsAppOrder, AuditLog, GiftCoupon, LoginAudit } from "../../../src/utils/db";
 import type { Dish } from "../../../src/components/DishCard";
-import Home from "../../../src/pages/Home";
 
 const staticCategories = [
   "SOUPS",
@@ -547,6 +546,7 @@ export default function AdminPortal() {
 
   // Homepage CMS State
   const [cmsHeroVideo, setCmsHeroVideo] = useState("");
+  const [cmsHeroVideoMobile, setCmsHeroVideoMobile] = useState("");
   const [cmsTimings, setCmsTimings] = useState("");
   const [cmsPhone, setCmsPhone] = useState("");
   const [cmsEmail, setCmsEmail] = useState("");
@@ -557,6 +557,7 @@ export default function AdminPortal() {
   const [cmsInstagramUrl, setCmsInstagramUrl] = useState("");
   const [cmsFacebookUrl, setCmsFacebookUrl] = useState("");
   const [cmsZomatoUrl, setCmsZomatoUrl] = useState("");
+  const [cmsSwiggyUrl, setCmsSwiggyUrl] = useState("");
 
   // Load Data on login
   const loadData = () => {
@@ -673,6 +674,7 @@ export default function AdminPortal() {
     const s = settingsDraft || settings;
     if (s) {
       setCmsHeroVideo(s.heroVideo || "https://res.cloudinary.com/or5e9kak/video/upload/v1783783688/WhatsApp_Video_2026-07-11_at_20.57.19_c4tq0e.mp4");
+      setCmsHeroVideoMobile(s.heroVideoMobile || "");
       setCmsTimings(s.timings);
       setCmsPhone(s.contactPhone);
       setCmsEmail(s.contactEmail);
@@ -683,6 +685,7 @@ export default function AdminPortal() {
       setCmsInstagramUrl(s.instagramUrl || "");
       setCmsFacebookUrl(s.facebookUrl || "");
       setCmsZomatoUrl(s.zomatoUrl || "");
+      setCmsSwiggyUrl(s.swiggyUrl || "");
     }
   }, [settingsDraft, settings]);
 
@@ -1658,6 +1661,7 @@ function extractIdFromQR(decodedText: string): string {
     if (!s) return false;
     return (
       cmsHeroVideo !== (s.heroVideo || "https://res.cloudinary.com/or5e9kak/video/upload/v1783783688/WhatsApp_Video_2026-07-11_at_20.57.19_c4tq0e.mp4") ||
+      cmsHeroVideoMobile !== (s.heroVideoMobile || "") ||
       cmsTimings !== s.timings ||
       cmsPhone !== s.contactPhone ||
       cmsEmail !== s.contactEmail ||
@@ -1665,7 +1669,8 @@ function extractIdFromQR(decodedText: string): string {
       cmsDiscount !== s.discountPercent ||
       cmsInstagramUrl !== (s.instagramUrl || "") ||
       cmsFacebookUrl !== (s.facebookUrl || "") ||
-      cmsZomatoUrl !== (s.zomatoUrl || "")
+      cmsZomatoUrl !== (s.zomatoUrl || "") ||
+      cmsSwiggyUrl !== (s.swiggyUrl || "")
     );
   };
 
@@ -1675,6 +1680,7 @@ function extractIdFromQR(decodedText: string): string {
     if (!pub || !draft) return false;
     return (
       draft.heroVideo !== pub.heroVideo ||
+      draft.heroVideoMobile !== pub.heroVideoMobile ||
       draft.timings !== pub.timings ||
       draft.contactPhone !== pub.contactPhone ||
       draft.contactEmail !== pub.contactEmail ||
@@ -1682,9 +1688,10 @@ function extractIdFromQR(decodedText: string): string {
       draft.discountPercent !== pub.discountPercent ||
       draft.instagramUrl !== pub.instagramUrl ||
       draft.facebookUrl !== pub.facebookUrl ||
-      draft.zomatoUrl !== pub.zomatoUrl
+      draft.zomatoUrl !== pub.zomatoUrl ||
+      draft.swiggyUrl !== pub.swiggyUrl
     );
-  }, [settings, settingsDraft, cmsInstagramUrl, cmsFacebookUrl, cmsZomatoUrl]);
+  }, [settings, settingsDraft, cmsInstagramUrl, cmsFacebookUrl, cmsZomatoUrl, cmsSwiggyUrl]);
 
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -1696,7 +1703,7 @@ function extractIdFromQR(decodedText: string): string {
     };
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [activeTab, cmsHeroVideo, cmsTimings, cmsPhone, cmsEmail, cmsAddress, cmsDiscount, settingsDraft, settings, cmsInstagramUrl, cmsFacebookUrl, cmsZomatoUrl]);
+  }, [activeTab, cmsHeroVideo, cmsHeroVideoMobile, cmsTimings, cmsPhone, cmsEmail, cmsAddress, cmsDiscount, settingsDraft, settings, cmsInstagramUrl, cmsFacebookUrl, cmsZomatoUrl, cmsSwiggyUrl]);
 
   const validateCMSDraft = (): boolean => {
     if (!cmsHeroVideo) {
@@ -1708,6 +1715,24 @@ function extractIdFromQR(decodedText: string): string {
     } catch (_) {
       alert("Please enter a valid Hero Video URL (starting with http:// or https://).");
       return false;
+    }
+
+    if (cmsHeroVideoMobile) {
+      try {
+        new URL(cmsHeroVideoMobile);
+      } catch (_) {
+        alert("Please enter a valid Mobile Hero Video URL (starting with http:// or https://).");
+        return false;
+      }
+    }
+
+    if (cmsSwiggyUrl) {
+      try {
+        new URL(cmsSwiggyUrl);
+      } catch (_) {
+        alert("Please enter a valid Swiggy URL (starting with http:// or https://).");
+        return false;
+      }
     }
 
     if (!cmsTimings.trim()) {
@@ -1748,6 +1773,7 @@ function extractIdFromQR(decodedText: string): string {
     try {
       await db.updateSettingsDraft({
         heroVideo: cmsHeroVideo,
+        heroVideoMobile: cmsHeroVideoMobile,
         timings: cmsTimings,
         contactPhone: cmsPhone,
         contactEmail: cmsEmail,
@@ -1755,7 +1781,8 @@ function extractIdFromQR(decodedText: string): string {
         discountPercent: cmsDiscount,
         instagramUrl: cmsInstagramUrl,
         facebookUrl: cmsFacebookUrl,
-        zomatoUrl: cmsZomatoUrl
+        zomatoUrl: cmsZomatoUrl,
+        swiggyUrl: cmsSwiggyUrl
       });
       (db as any).addAuditLog(
         "CMS Draft Saved",
@@ -1775,6 +1802,7 @@ function extractIdFromQR(decodedText: string): string {
     try {
       await db.updateSettingsDraft({
         heroVideo: cmsHeroVideo,
+        heroVideoMobile: cmsHeroVideoMobile,
         timings: cmsTimings,
         contactPhone: cmsPhone,
         contactEmail: cmsEmail,
@@ -1782,7 +1810,8 @@ function extractIdFromQR(decodedText: string): string {
         discountPercent: cmsDiscount,
         instagramUrl: cmsInstagramUrl,
         facebookUrl: cmsFacebookUrl,
-        zomatoUrl: cmsZomatoUrl
+        zomatoUrl: cmsZomatoUrl,
+        swiggyUrl: cmsSwiggyUrl
       });
 
       await db.publishSettings();
@@ -2484,7 +2513,12 @@ function formatPhone(phoneStr: string): string {
       showMenuPromo: settings?.showMenuPromo ?? true,
       webExclusiveText: webExclusiveTextInput || "",
       reservationPromoText: reservationPromoInput || "",
-      heroVideo: cmsHeroVideo
+      heroVideo: cmsHeroVideo,
+      heroVideoMobile: cmsHeroVideoMobile,
+      instagramUrl: cmsInstagramUrl,
+      facebookUrl: cmsFacebookUrl,
+      zomatoUrl: cmsZomatoUrl,
+      swiggyUrl: cmsSwiggyUrl
     };
 
     return (
@@ -2534,48 +2568,107 @@ function formatPhone(phoneStr: string): string {
         </div>
 
         {/* Viewport Wrapper */}
-        <div className="flex-1 bg-brand-bg/5 overflow-auto flex items-start justify-center p-4">
-          <div
-            className={`bg-white shadow-2xl transition-all duration-300 overflow-auto ${
-              previewViewport === "mobile"
-                ? "w-[375px] h-[667px] border-[12px] border-brand-dark rounded-[36px]"
-                : previewViewport === "tablet"
-                ? "w-[768px] h-[1024px] border-[16px] border-brand-dark rounded-[40px]"
-                : "w-full h-full"
-            }`}
-          >
-            <ErrorBoundary 
-              fallback={
-                <div className="p-8 text-center space-y-4 max-w-md mx-auto my-12 bg-[#FAF9F6] rounded-3xl border border-brand-dark/20 shadow-xl font-sans text-brand-dark">
-                  <div className="w-12 h-12 rounded-full bg-red-50 text-red-600 flex items-center justify-center mx-auto">
-                    <ShieldAlert size={24} />
+        <div className="flex-1 bg-brand-bg/10 overflow-auto flex items-center justify-center p-6">
+          {previewViewport === "mobile" ? (
+            <div className="relative w-[375px] h-[780px] bg-black rounded-[48px] p-3 shadow-2xl border-4 border-white/10 flex flex-col shrink-0">
+              {/* Speaker / Camera Notch */}
+              <div className="absolute top-5 left-1/2 -translate-x-1/2 w-32 h-6 bg-black rounded-full z-30 flex items-center justify-between px-4">
+                <div className="w-2.5 h-2.5 rounded-full bg-zinc-800/80 border border-zinc-700/50" />
+                <div className="w-12 h-1 bg-zinc-900 rounded-full" />
+              </div>
+
+              {/* iOS Status Bar */}
+              <div className="h-10 bg-[#FAF9F6] text-brand-dark px-6 flex justify-between items-center text-[10px] font-sans font-bold select-none rounded-t-[36px] z-20 shrink-0">
+                <span>9:41</span>
+                <div className="flex items-center gap-1.5">
+                  <div className="flex items-end gap-0.5 h-2.5">
+                    <div className="w-0.5 h-1 bg-brand-dark rounded-full" />
+                    <div className="w-0.5 h-1.5 bg-brand-dark rounded-full" />
+                    <div className="w-0.5 h-2 bg-brand-dark rounded-full" />
+                    <div className="w-0.5 h-2.5 bg-brand-dark rounded-full" />
                   </div>
-                  <h3 className="font-display font-black text-sm text-brand-dark uppercase tracking-wider">
-                    Unable to load homepage preview.
-                  </h3>
-                  <p className="text-xs text-brand-dark/65 leading-relaxed font-semibold">
-                    An error occurred while trying to render the homepage with the current draft configuration.
-                  </p>
-                  <div className="flex justify-center gap-3 pt-2">
-                    <button
-                      onClick={() => setIsPreviewMode(false)}
-                      className="px-4 py-2 bg-brand-dark hover:bg-brand-accent text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-colors cursor-pointer border border-brand-dark"
-                    >
-                      Back to Editing
-                    </button>
-                    <button
-                      onClick={() => window.location.reload()}
-                      className="px-4 py-2 border border-brand-dark/35 hover:bg-brand-bg text-brand-dark rounded-xl text-[10px] font-black uppercase tracking-wider transition-colors cursor-pointer"
-                    >
-                      Try Again
-                    </button>
+                  <span>5G</span>
+                  <div className="w-5 h-2.5 border border-brand-dark/60 rounded-[3px] p-0.5 flex items-center">
+                    <div className="h-full w-full bg-brand-dark rounded-[1px]" />
                   </div>
                 </div>
-              }
-            >
-              <Home previewData={draftData} />
-            </ErrorBoundary>
-          </div>
+              </div>
+
+              {/* The actual content (iframe) */}
+              <div className="flex-1 bg-white overflow-hidden rounded-b-[36px] relative">
+                <iframe
+                  src={typeof window !== "undefined" && window.location.port === "5174" ? "http://localhost:5173/?preview=true" : "/?preview=true"}
+                  className="w-full h-full border-0"
+                  title="Homepage Preview"
+                />
+              </div>
+
+              {/* Home Indicator */}
+              <div className="absolute bottom-2.5 left-1/2 -translate-x-1/2 w-32 h-1 bg-zinc-400 rounded-full z-30" />
+            </div>
+          ) : previewViewport === "tablet" ? (
+            <div className="relative w-[768px] h-[1024px] bg-black rounded-[48px] p-4 shadow-2xl border-4 border-white/10 flex flex-col shrink-0">
+              {/* Camera Bezel Dot */}
+              <div className="absolute top-5 left-1/2 -translate-x-1/2 w-3 h-3 rounded-full bg-zinc-900 z-30 flex items-center justify-center">
+                <div className="w-1 h-1 rounded-full bg-zinc-800" />
+              </div>
+
+              {/* Tablet Status Bar */}
+              <div className="h-8 bg-[#FAF9F6] text-brand-dark px-8 flex justify-between items-center text-[10px] font-sans font-bold select-none rounded-t-[32px] z-20 shrink-0">
+                <span>9:41 AM</span>
+                <div className="flex items-center gap-2">
+                  <span>100%</span>
+                  <div className="w-5 h-2.5 border border-brand-dark/60 rounded-[3px] p-0.5 flex items-center">
+                    <div className="h-full w-full bg-brand-dark rounded-[1px]" />
+                  </div>
+                </div>
+              </div>
+
+              {/* The actual content (iframe) */}
+              <div className="flex-1 bg-white overflow-hidden rounded-b-[32px] relative">
+                <iframe
+                  src={typeof window !== "undefined" && window.location.port === "5174" ? "http://localhost:5173/?preview=true" : "/?preview=true"}
+                  className="w-full h-full border-0"
+                  title="Homepage Preview"
+                />
+              </div>
+
+              {/* Home Indicator */}
+              <div className="absolute bottom-3 left-1/2 -translate-x-1/2 w-36 h-1 bg-zinc-400 rounded-full z-30" />
+            </div>
+          ) : (
+            <div className="w-full h-full bg-[#FAF9F6] rounded-2xl shadow-2xl border border-brand-dark/20 flex flex-col overflow-hidden max-w-5xl aspect-video shrink-0">
+              {/* Browser header */}
+              <div className="bg-[#FAF9F6] border-b border-brand-dark/15 px-4 py-3 flex items-center gap-4 shrink-0 select-none">
+                {/* Traffic light control dots */}
+                <div className="flex gap-1.5">
+                  <div className="w-3 h-3 rounded-full bg-rose-500 border border-rose-600/10" />
+                  <div className="w-3 h-3 rounded-full bg-amber-500 border border-amber-600/10" />
+                  <div className="w-3 h-3 rounded-full bg-emerald-500 border border-emerald-600/10" />
+                </div>
+
+                {/* Navigation arrows */}
+                <div className="flex gap-2 text-brand-dark/40 font-mono">
+                  <span className="text-sm font-semibold select-none cursor-default font-mono">‹</span>
+                  <span className="text-sm font-semibold select-none cursor-default font-mono">›</span>
+                </div>
+
+                {/* Address bar */}
+                <div className="flex-grow max-w-md mx-auto bg-brand-dark/5 border border-brand-dark/10 rounded-lg py-1 px-4 text-[10px] text-brand-dark/60 font-semibold text-center truncate">
+                  🔒 https://srikrishnadhaba.com/
+                </div>
+              </div>
+
+              {/* Frame content */}
+              <div className="flex-grow bg-white relative">
+                <iframe
+                  src={typeof window !== "undefined" && window.location.port === "5174" ? "http://localhost:5173/?preview=true" : "/?preview=true"}
+                  className="w-full h-full border-0"
+                  title="Homepage Preview"
+                />
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Publish Confirmation inside Preview */}
@@ -4644,7 +4737,7 @@ function formatPhone(phoneStr: string): string {
               
               <form onSubmit={handleSaveCMSDraft} className="space-y-5">
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-brand-dark uppercase tracking-wider block">Hero Video Cloudinary/MP4 Link</label>
+                  <label className="text-[10px] font-bold text-brand-dark uppercase tracking-wider block">Hero Video URL (Desktop/Laptop View)</label>
                   <input
                     type="url"
                     value={cmsHeroVideo}
@@ -4652,7 +4745,19 @@ function formatPhone(phoneStr: string): string {
                     className="w-full bg-brand-bg/30 border border-brand-dark/35 rounded-xl py-2.5 px-4 text-xs focus:outline-none focus:border-brand-dark/70"
                     required
                   />
-                  <span className="text-[10px] text-brand-dark/45 italic">Direct video file links (.mp4) only. Used for the background loops.</span>
+                  <span className="text-[10px] text-brand-dark/45 italic">Direct video file links (.mp4) only. Used for the desktop hero background.</span>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-brand-dark uppercase tracking-wider block">Hero Video URL (Mobile View - Reel Format)</label>
+                  <input
+                    type="url"
+                    value={cmsHeroVideoMobile}
+                    onChange={(e) => setCmsHeroVideoMobile(e.target.value)}
+                    className="w-full bg-brand-bg/30 border border-brand-dark/35 rounded-xl py-2.5 px-4 text-xs focus:outline-none focus:border-brand-dark/70"
+                    placeholder="Optional (falls back to desktop video if empty)"
+                  />
+                  <span className="text-[10px] text-brand-dark/45 italic">Direct video file links (.mp4) only. Displays in full-screen vertical reel format on mobile devices.</span>
                 </div>
  
                 <div className="space-y-1.5">
@@ -4700,7 +4805,7 @@ function formatPhone(phoneStr: string): string {
                   />
                 </div>
  
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-bold text-brand-dark uppercase tracking-wider block">Instagram Link</label>
                     <input
@@ -4731,6 +4836,16 @@ function formatPhone(phoneStr: string): string {
                       className="w-full bg-brand-bg/30 border border-brand-dark/35 rounded-xl py-2.5 px-4 text-xs focus:outline-none focus:border-brand-dark/70"
                     />
                   </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-brand-dark uppercase tracking-wider block">Swiggy Link</label>
+                    <input
+                      type="url"
+                      value={cmsSwiggyUrl}
+                      onChange={(e) => setCmsSwiggyUrl(e.target.value)}
+                      placeholder="https://www.swiggy.com/restaurants/..."
+                      className="w-full bg-brand-bg/30 border border-brand-dark/35 rounded-xl py-2.5 px-4 text-xs focus:outline-none focus:border-brand-dark/70"
+                    />
+                  </div>
                 </div>
 
                 <div className="flex flex-col sm:flex-row gap-3 pt-2">
@@ -4747,6 +4862,7 @@ function formatPhone(phoneStr: string): string {
                       try {
                         await db.updateSettingsDraft({
                           heroVideo: cmsHeroVideo,
+                          heroVideoMobile: cmsHeroVideoMobile,
                           timings: cmsTimings,
                           contactPhone: cmsPhone,
                           contactEmail: cmsEmail,
@@ -4754,7 +4870,8 @@ function formatPhone(phoneStr: string): string {
                           discountPercent: cmsDiscount,
                           instagramUrl: cmsInstagramUrl,
                           facebookUrl: cmsFacebookUrl,
-                          zomatoUrl: cmsZomatoUrl
+                          zomatoUrl: cmsZomatoUrl,
+                          swiggyUrl: cmsSwiggyUrl
                         });
                         loadData();
                         setIsPreviewMode(true);
