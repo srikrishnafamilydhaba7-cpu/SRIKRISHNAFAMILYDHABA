@@ -306,14 +306,33 @@ export default function Home({ previewData }: HomeProps) {
 
       {/* Interactive Review Marquee */}
       <section className="py-24 bg-brand-bg/40 border-y border-brand-gold/15 overflow-hidden">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mb-12 text-center">
-          <span className="text-xs font-bold uppercase tracking-widest text-brand-accent block mb-2">Diner Stories</span>
-          <h2 className="font-display font-extrabold text-3xl sm:text-4xl text-brand-dark tracking-tight">
-            Hear From Our Guests
-          </h2>
-          <p className="text-brand-dark/70 text-sm mt-3">
-            Click on any card to read their full detailed dining experience.
-          </p>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mb-12 flex flex-col md:flex-row items-center justify-between gap-8 border-b border-brand-gold/10 pb-10">
+          <div className="text-left max-w-xl">
+            <span className="text-xs font-bold uppercase tracking-widest text-brand-accent block mb-2">Diner Stories</span>
+            <h2 className="font-display font-extrabold text-3xl sm:text-4xl text-brand-dark tracking-tight">
+              Hear From Our Guests
+            </h2>
+            <p className="text-brand-dark/70 text-sm mt-3">
+              Click on any card to read their full detailed dining experience.
+            </p>
+          </div>
+          
+          {/* QR Code Card */}
+          <div className="bg-white/40 backdrop-blur-md border border-brand-gold/15 p-4 rounded-2xl flex items-center gap-4 shadow-sm max-w-sm shrink-0">
+            <div className="bg-white p-1 rounded-xl shadow-inner border border-brand-dark/10">
+              <img 
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(typeof window !== "undefined" ? window.location.origin + "/reviews?write=true" : "https://sri-krishna-family-dhaba.vercel.app/reviews?write=true")}`}
+                alt="Scan to Write Review"
+                className="w-16 h-16 bg-white"
+              />
+            </div>
+            <div className="space-y-1 max-w-[200px]">
+              <h4 className="font-display font-bold text-[10px] text-brand-dark uppercase tracking-wider">Scan & Share Your Story</h4>
+              <p className="text-[9px] text-brand-dark/70 leading-relaxed font-sans">
+                Scan this QR code with your phone camera to write a review directly from your mobile device!
+              </p>
+            </div>
+          </div>
         </div>
 
         {/* Row 1: Scrolling Left */}

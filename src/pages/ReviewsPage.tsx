@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Star, Search, MessageSquarePlus, CheckCircle2, AlertCircle, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import TestimonialCard from "../components/TestimonialCard";
@@ -6,6 +7,7 @@ import { db } from "../utils/db";
 import type { Review } from "../utils/db";
 
 export default function ReviewsPage() {
+  const [searchParams] = useSearchParams();
   const [reviews, setReviews] = useState<Review[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [ratingFilter, setRatingFilter] = useState<number | "All">("All");
@@ -29,9 +31,12 @@ export default function ReviewsPage() {
   };
   useEffect(() => {
     loadReviews();
+    if (searchParams.get("write") === "true") {
+      setIsFormOpen(true);
+    }
     window.addEventListener("storage", loadReviews);
     return () => window.removeEventListener("storage", loadReviews);
-  }, []);
+  }, [searchParams]);
   // Calculate statistics
   const stats = useMemo(() => {
     const total = reviews.length;
@@ -125,7 +130,7 @@ export default function ReviewsPage() {
         </div>
 
         {/* Overview Dashboard */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-12">
           {/* Summary Box */}
           <div className="glass-panel p-8 rounded-3xl border border-brand-gold/15 flex flex-col items-center justify-center text-center">
             <span className="text-5xl sm:text-6xl font-display font-black text-brand-dark">{stats.average}</span>
@@ -148,7 +153,7 @@ export default function ReviewsPage() {
           </div>
 
           {/* Rating Distribution Bars */}
-          <div className="glass-panel p-8 rounded-3xl border border-brand-gold/15 col-span-1 md:col-span-2 flex flex-col justify-center space-y-3">
+          <div className="glass-panel p-8 rounded-3xl border border-brand-gold/15 flex flex-col justify-center space-y-3">
             {[5, 4, 3, 2, 1].map((stars) => {
               const count = stats.counts[5 - stars];
               const totalForBars = reviews.length;
@@ -170,6 +175,23 @@ export default function ReviewsPage() {
                 </div>
               );
             })}
+          </div>
+
+          {/* QR Code Box */}
+          <div className="glass-panel p-8 rounded-3xl border border-brand-gold/15 flex flex-col items-center justify-center text-center space-y-4">
+            <div className="bg-white p-2 rounded-2xl shadow-inner border border-brand-dark/10">
+              <img 
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(typeof window !== "undefined" ? window.location.origin + "/reviews?write=true" : "https://sri-krishna-family-dhaba.vercel.app/reviews?write=true")}`}
+                alt="Scan to Write Review"
+                className="w-24 h-24 bg-white"
+              />
+            </div>
+            <div className="space-y-1">
+              <h4 className="font-display font-bold text-xs text-brand-dark uppercase tracking-wider">Scan & Share Your Story</h4>
+              <p className="text-[10px] text-brand-dark/70 leading-relaxed font-sans max-w-[200px] mx-auto">
+                Scan this QR code with your phone camera to write a review directly from your mobile device!
+              </p>
+            </div>
           </div>
         </div>
 
