@@ -629,7 +629,7 @@ export const db = {
       return acc;
     }, {} as any);
 
-    await updateDoc(doc(firestore, publicPath, "menu", id), cleanedUpdates);
+    await setDoc(doc(firestore, publicPath, "menu", id), cleanedUpdates, { merge: true });
     return updated;
   },
 
@@ -677,7 +677,7 @@ export const db = {
 
     const updates: Partial<Booking> = { status };
     if (notes !== undefined) updates.notes = notes;
-    updateDoc(doc(firestore, publicPath, "bookings", id), updates).catch(e => console.error(e));
+    setDoc(doc(firestore, publicPath, "bookings", id), updates, { merge: true }).catch(e => console.error(e));
     return bookings[index];
   },
 
@@ -690,7 +690,7 @@ export const db = {
     localStorage.setItem(KEYS.BOOKINGS, JSON.stringify(bookings));
     window.dispatchEvent(new Event("storage"));
 
-    updateDoc(doc(firestore, publicPath, "bookings", id), cleanForFirestore(updates)).catch(e => console.error(e));
+    setDoc(doc(firestore, publicPath, "bookings", id), cleanForFirestore(updates), { merge: true }).catch(e => console.error(e));
     return updated;
   },
 
@@ -741,7 +741,7 @@ export const db = {
 
     const updates: Partial<Review> = { status };
     if (pinned !== undefined) updates.pinned = pinned;
-    updateDoc(doc(firestore, publicPath, "reviews", id), cleanForFirestore(updates)).catch(e => console.error(e));
+    setDoc(doc(firestore, publicPath, "reviews", id), cleanForFirestore(updates), { merge: true }).catch(e => console.error(e));
     return reviews[index];
   },
 
@@ -839,7 +839,7 @@ export const db = {
     localStorage.setItem(KEYS.CONTACTS, JSON.stringify(contacts));
     window.dispatchEvent(new Event("storage"));
 
-    updateDoc(doc(firestore, publicPath, "contacts", id), { status }).catch(e => console.error(e));
+    setDoc(doc(firestore, publicPath, "contacts", id), { status }, { merge: true }).catch(e => console.error(e));
     return contacts[index];
   },
 
@@ -872,7 +872,7 @@ export const db = {
     window.dispatchEvent(new Event("storage"));
     window.dispatchEvent(new Event("skd_settings_updated"));
 
-    updateDoc(doc(firestore, publicPath, "settings", "default"), cleanForFirestore(updates)).catch(e => console.error(e));
+    setDoc(doc(firestore, publicPath, "settings", "default"), cleanForFirestore(updates), { merge: true }).catch(e => console.error(e));
     return updated;
   },
 
@@ -1079,7 +1079,7 @@ export const db = {
     localStorage.setItem(KEYS.VOUCHERS, JSON.stringify(vouchers));
     window.dispatchEvent(new Event("storage"));
 
-    updateDoc(doc(firestore, publicPath, "vouchers", id), { status: "REDEEMED" }).catch(e => console.error(e));
+    setDoc(doc(firestore, publicPath, "vouchers", id), { status: "REDEEMED" }, { merge: true }).catch(e => console.error(e));
     this.addAuditLog("Voucher Redemption", `Redeemed voucher ${id}`);
     return vouchers[index];
   },
@@ -1141,7 +1141,7 @@ export const db = {
     localStorage.setItem(KEYS.ORDERS, JSON.stringify(orders));
     window.dispatchEvent(new Event("storage"));
 
-    await updateDoc(doc(firestore, publicPath, "orders", id), cleanForFirestore(updates));
+    await setDoc(doc(firestore, publicPath, "orders", id), cleanForFirestore(updates), { merge: true });
     this.addAuditLog("Order Status Update", `Updated order ${id} status to ${status}`);
     return orders[index];
   },
@@ -1153,7 +1153,7 @@ export const db = {
       orders[idx].isReviewed = true;
       localStorage.setItem(KEYS.ORDERS, JSON.stringify(orders));
       window.dispatchEvent(new Event("storage"));
-      updateDoc(doc(firestore, publicPath, "orders", orderId), { isReviewed: true }).catch(e => console.error(e));
+      setDoc(doc(firestore, publicPath, "orders", orderId), { isReviewed: true }, { merge: true }).catch(e => console.error(e));
     }
 
     this.addReview({
@@ -1188,7 +1188,7 @@ export const db = {
       if (c.status === "ACTIVE" && new Date(c.expiresAt).getTime() < now) {
         c.status = "EXPIRED";
         changed = true;
-        updateDoc(doc(firestore, publicPath, "gift_coupons", c.id), { status: "EXPIRED" }).catch(e => console.error(e));
+        setDoc(doc(firestore, publicPath, "gift_coupons", c.id), { status: "EXPIRED" }, { merge: true }).catch(e => console.error(e));
       }
       return c;
     });
@@ -1250,11 +1250,11 @@ export const db = {
     localStorage.setItem(KEYS.GIFT_COUPONS, JSON.stringify(coupons));
     window.dispatchEvent(new Event("storage"));
 
-    updateDoc(doc(firestore, publicPath, "gift_coupons", id), cleanForFirestore({
+    setDoc(doc(firestore, publicPath, "gift_coupons", id), cleanForFirestore({
       status: "REDEEMED",
       redeemedAt: nowStr,
       ...details
-    })).catch(e => console.error(e));
+    }), { merge: true }).catch(e => console.error(e));
 
     this.addAuditLog("GIFT_COUPON_REDEEMED", `Redeemed coupon ${coupons[idx].code} for customer ${coupons[idx].customerName}. Bill: Rs. ${details.billAmount}, Discount: Rs. ${details.discountAmount}`);
     return coupons[idx];
