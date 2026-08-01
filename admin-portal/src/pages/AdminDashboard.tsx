@@ -9,8 +9,9 @@ import {
   Clock, Users, CheckCircle, Utensils, Folder, MessageSquare, Gift
 } from "lucide-react";
 import { db } from "../../../src/utils/db";
-import { auth, storage } from "../utils/firebase";
-import { EmailAuthProvider, reauthenticateWithCredential } from "firebase/auth";
+import { auth, storage, db as firestore } from "../utils/firebase";
+import { EmailAuthProvider, reauthenticateWithCredential, signInWithEmailAndPassword } from "firebase/auth";
+import { doc, getDoc } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import type { Booking, Review, GalleryItem, ContactInquiry, RestaurantSettings, LoyaltyVoucher, WhatsAppOrder, AuditLog, GiftCoupon, LoginAudit } from "../../../src/utils/db";
 import type { Dish } from "../../../src/components/DishCard";
@@ -810,11 +811,55 @@ export default function AdminPortal() {
       return;
     }
 
-    const matched = defaultAdminUsers.find(
-      (u) => u.username === username.toLowerCase()
-    );
+    let loggedInUser: AdminUser | null = null;
 
-    const isValid = matched && (password === `${matched.username}123`);
+    // A. Try Firebase Authentication (Email/Password)
+    try {
+      const emailToTry = username.includes("@") ? username : `${username}@srikrishnadhaba.com`;
+      const userCredential = await signInWithEmailAndPassword(auth, emailToTry, password);
+      if (userCredential && userCredential.user) {
+        const cleanName = username.includes("@") ? username.split("@")[0] : username;
+        loggedInUser = {
+          username: cleanName.toLowerCase(),
+          role: "Owner",
+          name: userCredential.user.displayName || cleanName
+        };
+      }
+    } catch (e) {
+      // Not in Firebase Auth or invalid credentials
+    }
+
+    // B. If not logged in via Firebase Auth, check Firestore admin_users collection in Firebase
+    if (!loggedInUser) {
+      try {
+        const userDocRef = doc(firestore, "publicData/sri-krishna-dhaba/admin_users", username.toLowerCase());
+        const userDocSnap = await getDoc(userDocRef);
+        if (userDocSnap.exists()) {
+          const data = userDocSnap.data();
+          if (data && (data.password === password || data.password === `${username}123`)) {
+            loggedInUser = {
+              username: username.toLowerCase(),
+              role: data.role || "Owner",
+              name: data.name || username
+            };
+          }
+        }
+      } catch (e) {
+        console.error("Firestore admin_users check error:", e);
+      }
+    }
+
+    // C. Fallback to default local admin users
+    if (!loggedInUser) {
+      const matched = defaultAdminUsers.find(
+        (u) => u.username === username.toLowerCase()
+      );
+      if (matched && password === `${matched.username}123`) {
+        loggedInUser = matched;
+      }
+    }
+
+    const isValid = !!loggedInUser;
 
     // 1. Resolve IP and create login attempt log immediately
     const attemptId = `attempt-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
@@ -832,7 +877,7 @@ export default function AdminPortal() {
         deviceType,
         userAgent,
         snapshotUrl: null,
-        adminUid: matched ? matched.username : undefined,
+        adminUid: loggedInUser ? loggedInUser.username : username,
         createdAt: new Date().toISOString(),
         snapshotStatus: enableSnapshot ? "NO_IMAGE" : "NO_IMAGE"
       });
@@ -841,13 +886,13 @@ export default function AdminPortal() {
     }
 
     if (!isValid) {
-      setAuthError(matched ? "Invalid password." : "Invalid username.");
+      setAuthError("Invalid login credentials or password.");
       const failedAttemptsList = JSON.parse(localStorage.getItem("skd_failed_logins") || "[]") as number[];
       failedAttemptsList.push(Date.now());
       localStorage.setItem("skd_failed_logins", JSON.stringify(failedAttemptsList));
     } else {
-      setUser(matched);
-      sessionStorage.setItem("skd_admin_session", JSON.stringify(matched));
+      setUser(loggedInUser);
+      sessionStorage.setItem("skd_admin_session", JSON.stringify(loggedInUser));
       setUsernameInput("");
       setPasswordInput("");
       localStorage.removeItem("skd_failed_logins");
