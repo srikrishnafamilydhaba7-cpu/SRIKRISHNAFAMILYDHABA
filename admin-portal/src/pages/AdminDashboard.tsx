@@ -4378,6 +4378,7 @@ function formatPhone(phoneStr: string): string {
                   </button>
                   {allCategories.map((cat) => (
                     <button
+                      key={cat}
                       type="button"
                       onClick={() => setMenuSelectedCategory(cat)}
                       className={`flex items-center justify-center shrink-0 px-4 py-2 rounded-xl border text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
